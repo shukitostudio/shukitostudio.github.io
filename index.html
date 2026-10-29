@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es" data-tema="noche">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shukito Studio – El zorro y las gallinas</title>
+  <meta name="description" content="El zorro y las gallinas es un juego de estrategia por turnos para jugar en familia. Próximamente en Google Play.">
+  <meta name="theme-color" content="#14193a">
+
+  <!-- Redes sociales. Imagen para compartir: dirección completa. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Shukito Studio">
+  <meta property="og:title" content="Shukito Studio – El zorro y las gallinas">
+  <meta property="og:description" content="Un juego de estrategia para jugar en familia. Próximamente en Google Play.">
+  <meta property="og:image" content="https://shukitostudio.github.io/assets/og.jpg">
+  <meta property="og:locale" content="es_ES">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Shukito Studio – El zorro y las gallinas">
+  <meta name="twitter:description" content="Un juego de estrategia para jugar en familia. Próximamente en Google Play.">
+  <meta name="twitter:image" content="https://shukitostudio.github.io/assets/og.jpg">
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%238a4a22'/%3E%3Cpath d='M12 14l14 10h12l14-10-3 24-17 14-17-14z' fill='%23f2792b'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Fondo ilustrado (noche y día) -->
+  <div class="fondo" aria-hidden="true">
+    <div class="fondo-lados noche"></div>
+    <div class="fondo-lados dia"></div>
+    <div class="fondo-columna noche"></div>
+    <div class="fondo-columna dia"></div>
+  </div>
+
+  <main>
+    <!-- 1. Portada -->
+    <header class="portada">
+      <div class="portada-grid">
+        <img class="animal gallina" src="assets/gallina.webp" data-alt="gallinaAlt" alt="" width="700" height="573">
+        <div class="portada-centro">
+          <div class="cartel-logo">
+            <img id="logo-img" data-alt="logoAlt" alt="">
+            <h1 class="logo-texto">Shukito Studio</h1>
+          </div>
+          <p class="frase" data-i="portadaFrase"></p>
+          <span class="btn-madera btn-play" role="button" aria-disabled="true" tabindex="-1">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg>
+            <span data-i="botonPlay"></span>
+          </span>
+        </div>
+        <img class="animal zorro" src="assets/zorro.webp" data-alt="zorroAlt" alt="" width="800" height="528">
+      </div>
+    </header>
+
+    <!-- 2. Qué es el juego -->
+    <section class="seccion">
+      <div class="panel panel-ancho">
+        <h2 data-i="queEsTitulo"></h2>
+        <p class="texto-largo" data-i="queEsTexto"></p>
+      </div>
+    </section>
+
+    <!-- 3. Cómo se juega -->
+    <section class="seccion">
+      <h2 class="titulo-suelto"><span data-i="comoTitulo"></span></h2>
+      <div class="tarjetas cuatro">
+        <article class="tarjeta">
+          <div class="icono"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="10" y="14" width="28" height="22" rx="5"/><path d="M24 14V8"/><circle cx="24" cy="7" r="2"/><circle cx="18" cy="24" r="2.6" class="rel"/><circle cx="30" cy="24" r="2.6" class="rel"/><path d="M18 31h12"/><path d="M6 24v4M42 24v4"/></svg></div>
+          <h3 data-i="como1Titulo"></h3>
+          <p data-i="como1Texto"></p>
+        </article>
+        <article class="tarjeta">
+          <div class="icono"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="15" y="6" width="18" height="36" rx="4"/><path d="M21 37h6"/><path d="M5 20c2-3 2-6 0-9M43 20c-2-3-2-6 0-9"/><path d="M8 28l5-4M40 28l-5-4"/></svg></div>
+          <h3 data-i="como2Titulo"></h3>
+          <p data-i="como2Texto"></p>
+        </article>
+        <article class="tarjeta">
+          <div class="icono"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M6 19c10-9 26-9 36 0"/><path d="M12 26c7-6 17-6 24 0"/><path d="M18 33c4-3 8-3 12 0"/><circle cx="24" cy="39" r="2.4" class="rel"/></svg></div>
+          <h3 data-i="como3Titulo"></h3>
+          <p data-i="como3Texto"></p>
+        </article>
+        <article class="tarjeta">
+          <div class="icono"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="16"/><path d="M8 24h32"/><path d="M24 8c-7 8-7 24 0 32M24 8c7 8 7 24 0 32"/></svg></div>
+          <span class="etiqueta" data-i="como4Etiqueta"></span>
+          <h3 data-i="como4Titulo"></h3>
+          <p data-i="como4Texto"></p>
+        </article>
+      </div>
+    </section>
+
+    <!-- 4. Capturas -->
+    <section class="seccion">
+      <h2 class="titulo-suelto"><span data-i="capturasTitulo"></span></h2>
+      <div class="capturas">
+        <figure class="telefono"><img data-captura="1" data-alt="captura1Alt" src="assets/captura1-es.webp" alt="" width="540" height="1200" loading="lazy"></figure>
+        <figure class="telefono"><img data-captura="2" data-alt="captura2Alt" src="assets/captura2-es.webp" alt="" width="540" height="1200" loading="lazy"></figure>
+        <figure class="telefono"><img data-captura="3" data-alt="captura3Alt" src="assets/captura3-es.webp" alt="" width="540" height="1200" loading="lazy"></figure>
+        <figure class="telefono"><img data-captura="4" data-alt="captura4Alt" src="assets/captura4-es.webp" alt="" width="540" height="1200" loading="lazy"></figure>
+        <figure class="telefono"><img data-captura="5" data-alt="captura5Alt" src="assets/captura5-es.webp" alt="" width="540" height="1200" loading="lazy"></figure>
+      </div>
+    </section>
+
+    <!-- 5. Por qué es distinto -->
+    <section class="seccion">
+      <h2 class="titulo-suelto"><span data-i="distintoTitulo"></span></h2>
+      <div class="tarjetas tres">
+        <article class="tarjeta">
+          <div class="icono"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="12" width="34" height="24" rx="4"/><path d="M13 30l22-12"/><path d="M13 18h6M29 30h6"/></svg></div>
+          <h3 data-i="distinto1Titulo"></h3>
+          <p data-i="distinto1Texto"></p>
+        </article>
+        <article class="tarjeta">
+          <div class="icono"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="16" cy="14" r="5"/><circle cx="33" cy="16" r="4"/><circle cx="24" cy="29" r="3.6"/><path d="M7 38v-5a9 9 0 0 1 18 0v5"/><path d="M27 38v-3a7 7 0 0 1 14 0v3"/></svg></div>
+          <h3 data-i="distinto2Titulo"></h3>
+          <p data-i="distinto2Texto"></p>
+        </article>
+        <article class="tarjeta">
+          <div class="icono"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/><path d="M15 19l4-2v14"/><path d="M26 19.5a3.5 3.5 0 0 1 7 0v9a3.5 3.5 0 0 1-7 0z"/><path d="M33 30l4 4" opacity="0"/></svg></div>
+          <h3 data-i="distinto3Titulo"></h3>
+          <p data-i="distinto3Texto"></p>
+        </article>
+      </div>
+    </section>
+
+    <!-- 6. Sobre Shukito Studio -->
+    <section class="seccion">
+      <div class="panel panel-ancho">
+        <h2 data-i="sobreTitulo"></h2>
+        <p class="texto-largo" data-i="sobreTexto"></p>
+      </div>
+    </section>
+  </main>
+
+  <!-- 7. Pie -->
+  <footer class="pie">
+    <div class="panel panel-pie">
+      <div class="pie-fila">
+        <span class="pie-etiqueta" data-i="pieCorreo"></span>
+        <a class="enlace" href="mailto:shukitostudio@gmail.com">shukitostudio@gmail.com</a>
+      </div>
+      <div class="pie-fila">
+        <a class="enlace" href="https://shukitostudio.github.io/zorro-privacidad/" target="_blank" rel="noopener" data-i="piePrivacidad"></a>
+      </div>
+      <div class="pie-controles">
+        <button type="button" id="btn-tema" class="btn-madera btn-chico" aria-pressed="false">
+          <svg class="ico-sol" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <svg class="ico-luna" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z" fill="currentColor"/></svg>
+          <span data-tema-etiqueta></span>
+        </button>
+        <div class="selector-idioma" role="group" data-i-label="pieIdioma" aria-label="Idioma / Language">
+          <button type="button" class="btn-madera btn-chico" data-lang="es" aria-pressed="true">Español</button>
+          <button type="button" class="btn-madera btn-chico" data-lang="en" aria-pressed="false">English</button>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="textos.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
