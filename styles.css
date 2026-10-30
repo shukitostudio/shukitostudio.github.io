@@ -205,9 +205,9 @@ button.btn-madera:focus-visible, .enlace:focus-visible { outline: 3px solid var(
 
   /* Portada */
   .portada { padding: 6px 10px 0; }
-  .portada-centro { gap: 10px; }
+  .portada-centro { gap: 8px; }
   .cartel-logo { width: 76vw; }
-  .cartel-logo.con-logo { margin: 17vw 0 12vw; }   /* el logo mide ~60 % del ancho */
+  .cartel-logo.con-logo { margin: 16vw 0 17vw; }   /* el logo mide ~60 % del ancho y no queda tapado por la frase */
   .logo-texto { font-size: 26px; }
   .frase { font-size: 17px; padding: 0 10px 2px; border-width: 13px; border-image-width: 13px; }
   .animal { max-width: 150px; margin-top: 0; }
