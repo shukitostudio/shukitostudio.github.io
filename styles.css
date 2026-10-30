@@ -191,3 +191,64 @@ button.btn-madera:focus-visible, .enlace:focus-visible { outline: 3px solid var(
   html { scroll-behavior: auto; }
   .fondo > div { transition: none; }
 }
+
+/* ---------- Teléfono angosto (hasta 600 px): más compacto. No afecta a la computadora ---------- */
+@media (max-width: 600px) {
+  body { font-size: 16px; line-height: 1.45; }
+  main { padding: 0 10px; }
+  .seccion { padding: 14px 0; }
+
+  /* Fondo más liviano: sin capa de lados (queda tapada) y versión reducida */
+  .fondo-lados { display: none; }
+  .fondo-columna.noche { background-image: url("assets/fondo-noche-tile-m.webp"); }
+  .fondo-columna.dia   { background-image: url("assets/fondo-dia-tile-m.webp"); }
+
+  /* Portada */
+  .portada { padding: 6px 10px 0; }
+  .portada-centro { gap: 10px; }
+  .cartel-logo { width: 76vw; }
+  .cartel-logo.con-logo { margin: 17vw 0 12vw; }   /* el logo mide ~60 % del ancho */
+  .logo-texto { font-size: 26px; }
+  .frase { font-size: 17px; padding: 0 10px 2px; border-width: 13px; border-image-width: 13px; }
+  .animal { max-width: 150px; margin-top: 0; }
+
+  /* Botones de madera, versión simple: mismo color y brillo, sin hojas ni remaches */
+  .btn-madera, .btn-chico {
+    min-height: 48px; max-height: 52px; padding: 4px 16px; margin: 0; gap: 8px;
+    font-size: 16px; border: 2px solid #2a1206; border-image: none; border-radius: 14px;
+    background: linear-gradient(180deg, #b06a36, #6b3516 62%, #86441d);
+    box-shadow: inset 0 0 0 2px rgba(255, 190, 110, .3), 0 4px 6px rgba(0, 0, 0, .45);
+    filter: none;
+  }
+  .btn-madera::before { display: none; }
+  .btn-madera svg { width: 20px; height: 20px; }
+  .btn-play { font-size: 16px; }
+  button.btn-madera:hover { filter: brightness(1.15); }
+  button.btn-madera[aria-pressed="true"][data-lang] { background: linear-gradient(180deg, #ffc15a, #d9791f 62%, #b8600f); color: #2a1206; text-shadow: none; }
+
+  /* Paneles y tarjetas */
+  .panel { border-width: 24px; border-image-width: 24px; padding: 2px 4px 6px; }
+  .panel::before { inset: -12px; }
+  .panel h2 { font-size: 24px; margin-bottom: 6px; }
+  .texto-largo { font-size: 16px; }
+  .titulo-suelto { margin-bottom: 14px; }
+  .titulo-suelto span { font-size: 22px; padding: 4px 18px 6px; border-width: 16px; border-image-width: 16px; }
+  .tarjetas { gap: 14px; }
+  .tarjeta { border-width: 26px; border-image-width: 26px; padding: 0 2px 4px; }
+  .tarjeta::before { inset: -12px; }
+  .tarjeta h3 { font-size: 18px; margin: 6px 0 4px; }
+  .tarjeta p { font-size: 15px; }
+  .icono { width: 56px; height: 56px; }
+  .icono svg { width: 34px; height: 34px; }
+  .etiqueta { font-size: 12px; margin-top: 4px; }
+  .capturas { gap: 12px; padding-bottom: 10px; }
+  .telefono { flex-basis: 60%; }
+
+  /* Pie */
+  .pie { padding: 20px 10px 28px; }
+  .panel-pie { gap: 4px; }
+  .enlace { display: inline-block; padding: 12px 4px; line-height: 20px; }
+  .pie-controles { gap: 8px; margin-top: 4px; }
+  .selector-idioma { gap: 8px; }
+  .selector-idioma .btn-madera { flex: 1; }
+}
