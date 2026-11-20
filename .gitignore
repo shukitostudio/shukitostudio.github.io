@@ -1,0 +1,5 @@
+# Chat Social: archivos locales que no se suben
+social-worker/node_modules/
+social-worker/.wrangler/
+social-worker/.dev.vars
+.dev.vars

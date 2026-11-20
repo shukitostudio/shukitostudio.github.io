@@ -1,0 +1,12 @@
+{
+  "name": "shukito-social",
+  "private": true,
+  "description": "Servidor del chat Social de Shukito Studio (Cloudflare Worker + Durable Object)",
+  "scripts": {
+    "publicar": "wrangler deploy",
+    "probar": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "4.45.0"
+  }
+}

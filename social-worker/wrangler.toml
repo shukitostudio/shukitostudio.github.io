@@ -1,0 +1,26 @@
+# Servidor del chat Social de Shukito Studio.
+# Es un Worker NUEVO y separado: no tiene nada que ver con el servidor del modo Online del juego.
+name = "shukito-social"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# La clave NO va aquí. Se guarda como secreto de Cloudflare con:
+#   npx wrangler secret put CLAVE
+
+[vars]
+# Horas que duran los mensajes antes de borrarse solos.
+HORAS_MENSAJES = "24"
+# Cuántos mensajes se guardan como máximo (los más nuevos).
+MAX_MENSAJES = "200"
+# Días sin entrar tras los que se borra un nombre de usuario (y su sesión en el teléfono).
+DIAS_SESION = "30"
+# Páginas que pueden usar el chat (separadas por coma).
+ORIGENES = "https://shukitostudio.github.io,http://localhost:8080,http://127.0.0.1:8080"
+
+[[durable_objects.bindings]]
+name = "SALA"
+class_name = "SalaSocial"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SalaSocial"]

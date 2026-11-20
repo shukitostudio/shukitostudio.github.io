@@ -1,0 +1,159 @@
+/* ---------- Chat Social (solo invitados) ---------- */
+:root {
+  --so-fondo: rgba(12, 14, 38, .92);
+  --so-chat: rgba(20, 25, 58, .82);
+  --so-otra: #2b3163;
+  --so-otra-texto: #fff3d6;
+  --so-mia: linear-gradient(180deg, #b06a36, #8a4a22);
+  --so-mia-texto: #fff3d6;
+  --so-autor: #ffb347;
+  --so-tenue: #c9c2b0;
+  --so-campo: #fff8e8;
+  --so-campo-texto: #2a1206;
+  --so-leido: #6fc8ff;
+  --so-verde: #3ddc6b;
+}
+html[data-tema="dia"] {
+  --so-fondo: rgba(126, 192, 232, .9);
+  --so-chat: rgba(255, 246, 224, .9);
+  --so-otra: #ffffff;
+  --so-otra-texto: #2a1206;
+  --so-mia: linear-gradient(180deg, #ffd38a, #ffb347);
+  --so-mia-texto: #2a1206;
+  --so-autor: #a14d12;
+  --so-tenue: #6b5642;
+  --so-leido: #0b78c9;
+  --so-verde: #1fa64a;
+}
+
+html.social-abierto, html.social-abierto body { overflow: hidden; }
+
+/* Botón en la portada: discreto, debajo de "Próximamente" */
+.btn-social { margin-top: -6px; }
+
+.social {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; justify-content: center; align-items: stretch;
+  background: var(--so-fondo);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  text-shadow: none;
+}
+.social-caja {
+  width: 100%; max-width: 680px; height: 100%; height: 100dvh;
+  display: flex; flex-direction: column; min-height: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Cabecera de madera con el logo */
+.social-cabecera {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; color: #fff3d6; text-shadow: var(--sombra-texto);
+  background: linear-gradient(180deg, #b06a36, #6b3516 62%, #86441d);
+  border-bottom: 3px solid #2a1206;
+  box-shadow: inset 0 -2px 0 rgba(255, 190, 110, .3), 0 4px 10px rgba(0, 0, 0, .35);
+}
+@media (min-width: 681px) { .social-caja { padding-top: 16px; padding-bottom: 16px; } .social-cabecera { border-radius: 16px 16px 0 0; } }
+.social-logo { width: 48px; height: 48px; object-fit: contain; flex: none; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .5)); }
+.social-cabecera-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.social-cabecera h2 { font-size: 22px; color: var(--naranja); }
+.social-estado { font-size: 14px; color: #f1dcb4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.social-icono {
+  flex: none; width: 44px; height: 44px; display: grid; place-items: center;
+  border: 2px solid #2a1206; border-radius: 12px; color: #fff3d6; cursor: pointer;
+  background: rgba(42, 18, 6, .45);
+}
+.social-icono svg { width: 22px; height: 22px; }
+.social-icono:hover { background: rgba(42, 18, 6, .7); }
+.social-icono:focus-visible, .social-enviar:focus-visible, .social textarea:focus-visible, .social input:focus-visible {
+  outline: 3px solid var(--naranja); outline-offset: 2px;
+}
+
+/* Pantalla de entrada */
+.social-entrar {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+  padding: 22px 18px; background: var(--so-chat); color: var(--so-otra-texto);
+}
+@media (min-width: 681px) { .social-entrar, .social-chat { border-radius: 0 0 16px 16px; } }
+.social-intro { margin: 0; font-size: 17px; }
+.social-campo { display: flex; flex-direction: column; gap: 4px; font-weight: bold; font-size: 16px; }
+.social input, .social textarea {
+  font: inherit; font-size: 16px; /* 16 px evita que el iPhone acerque la pantalla */
+  color: var(--so-campo-texto); background: var(--so-campo);
+  border: 2px solid #8a4a22; border-radius: 12px; padding: 10px 12px; width: 100%;
+}
+.social-error { margin: 0; min-height: 1.4em; color: #ff8a7a; font-weight: bold; font-size: 15px; }
+html[data-tema="dia"] .social-error { color: #b3261e; }
+.social-entrar .btn-madera { align-self: stretch; }
+.social-enlace-priv { align-self: center; font-size: 15px; }
+html[data-tema="dia"] .social .enlace { color: #a14d12; }
+
+/* Chat */
+.social-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--so-chat); position: relative; }
+.social-usuarios {
+  flex: none; list-style: none; margin: 0; padding: 8px 10px; display: flex; gap: 6px; overflow-x: auto;
+  border-bottom: 1px solid rgba(138, 74, 34, .4); scrollbar-width: none;
+}
+.social-usuarios::-webkit-scrollbar { display: none; }
+.social-usuarios li {
+  flex: none; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px;
+  font-size: 14px; color: var(--so-tenue); background: rgba(138, 74, 34, .18);
+}
+.social-usuarios li.en-linea { color: var(--so-otra-texto); font-weight: bold; }
+.social-punto { width: 9px; height: 9px; border-radius: 50%; background: #8c8c8c; flex: none; }
+.en-linea .social-punto { background: var(--so-verde); box-shadow: 0 0 0 2px rgba(61, 220, 107, .25); }
+
+.social-mensajes {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 12px 10px 6px;
+  display: flex; flex-direction: column; gap: 6px; overscroll-behavior: contain;
+}
+.social-vacio { margin: auto; max-width: 320px; text-align: center; color: var(--so-tenue); font-size: 15px; }
+.social-fila { display: flex; }
+.social-fila.mia { justify-content: flex-end; }
+.social-burbuja {
+  max-width: 80%; padding: 6px 10px 4px; border-radius: 14px; font-size: 16px; line-height: 1.35;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3); display: flex; flex-direction: column;
+}
+.otra .social-burbuja { background: var(--so-otra); color: var(--so-otra-texto); border-top-left-radius: 4px; }
+.mia .social-burbuja { background: var(--so-mia); color: var(--so-mia-texto); border-top-right-radius: 4px; }
+.social-autor { font-size: 13px; font-weight: bold; color: var(--so-autor); }
+.social-cuerpo { white-space: pre-wrap; overflow-wrap: anywhere; }
+.social-pie { align-self: flex-end; display: flex; gap: 4px; align-items: center; font-size: 12px; opacity: .8; margin-top: 2px; }
+.social-marca { font-size: 13px; letter-spacing: -3px; padding-right: 3px; }
+.social-marca.leido { color: var(--so-leido); opacity: 1; font-weight: bold; }
+.mia .social-pie { opacity: .9; }
+.pendiente { opacity: .7; }
+.pendiente .social-marca { letter-spacing: 0; }
+
+.social-escribiendo { flex: none; min-height: 22px; padding: 0 14px; font-size: 14px; font-style: italic; color: var(--so-tenue); }
+.social-escribiendo.es-aviso { font-style: normal; font-weight: bold; color: #ff8a7a; }
+html[data-tema="dia"] .social-escribiendo.es-aviso { color: #b3261e; }
+
+.social-form { flex: none; display: flex; gap: 8px; align-items: flex-end; padding: 6px 10px 10px; }
+.social-form textarea { resize: none; max-height: 130px; line-height: 1.35; border-radius: 20px; padding: 10px 14px; }
+.social-enviar {
+  flex: none; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  border: 2px solid #2a1206; color: #fff3d6;
+  background: linear-gradient(180deg, #b06a36, #6b3516 62%, #86441d);
+  box-shadow: inset 0 0 0 2px rgba(255, 190, 110, .3), 0 3px 5px rgba(0, 0, 0, .4);
+}
+.social-enviar svg { width: 22px; height: 22px; margin-left: 3px; }
+.social-enviar:disabled { opacity: .45; cursor: default; }
+.social-contador { position: absolute; right: 70px; bottom: 62px; font-size: 12px; color: var(--so-tenue); }
+.social-contador.excedido { color: #ff8a7a; font-weight: bold; }
+
+/* Ventana de privacidad */
+.social-priv {
+  position: fixed; inset: 0; z-index: 110; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(8, 6, 20, .7); overflow-y: auto;
+}
+.social-priv-panel { max-width: 620px; width: 100%; max-height: calc(100dvh - 32px); overflow-y: auto; text-align: left; }
+.social-priv-panel h2 { text-align: center; }
+.social-priv-lista { margin: 6px 0 14px; padding-left: 22px; display: grid; gap: 8px; font-size: 16px; }
+.social-priv-panel .btn-madera { display: flex; margin: 0 auto; }
+
+@media (max-width: 600px) {
+  .social-logo { width: 40px; height: 40px; }
+  .social-cabecera h2 { font-size: 20px; }
+  .social-burbuja { max-width: 86%; }
+  .social-priv-lista { font-size: 15px; }
+}

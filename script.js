@@ -41,6 +41,13 @@
     for (var i = 0; i < nodos.length; i++) nodos[i].textContent = t(nodos[i].getAttribute('data-i'));
     var alts = document.querySelectorAll('[data-alt]');
     for (var j = 0; j < alts.length; j++) alts[j].setAttribute('alt', t(alts[j].getAttribute('data-alt')));
+    var phs = document.querySelectorAll('[data-i-ph]');
+    for (var p = 0; p < phs.length; p++) phs[p].setAttribute('placeholder', t(phs[p].getAttribute('data-i-ph')));
+    var labels = document.querySelectorAll('[data-i-label]');
+    for (var q = 0; q < labels.length; q++) {
+      var txt = t(labels[q].getAttribute('data-i-label'));
+      if (txt) labels[q].setAttribute('aria-label', txt);
+    }
     var caps = document.querySelectorAll('img[data-captura]');
     for (var k = 0; k < caps.length; k++) {
       caps[k].src = 'assets/captura' + caps[k].getAttribute('data-captura') + '-' + idioma + '.webp';
@@ -53,7 +60,13 @@
       botones[m].setAttribute('aria-pressed', botones[m].getAttribute('data-lang') === idioma ? 'true' : 'false');
     }
     aplicarTema();
+    // Avisa al chat Social (social.js) que cambió el idioma.
+    document.dispatchEvent(new CustomEvent('shukito-idioma', { detail: idioma }));
   }
+
+  // El chat Social usa los mismos textos.
+  window.shukitoTexto = t;
+  window.shukitoIdioma = function () { return idioma; };
 
   document.getElementById('btn-tema').addEventListener('click', function () {
     tema = tema === 'noche' ? 'dia' : 'noche';

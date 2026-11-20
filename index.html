@@ -22,6 +22,7 @@
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%238a4a22'/%3E%3Cpath d='M12 14l14 10h12l14-10-3 24-17 14-17-14z' fill='%23f2792b'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="social.css">
 </head>
 <body>
 
@@ -48,6 +49,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg>
             <span data-i="botonPlay"></span>
           </span>
+          <button type="button" id="btn-social" class="btn-madera btn-chico btn-social" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" fill="currentColor"/></svg>
+            <span data-i="socialBoton"></span>
+          </button>
         </div>
         <img class="animal zorro" src="assets/zorro.webp" data-alt="zorroAlt" alt="" width="800" height="528">
       </div>
@@ -141,6 +146,7 @@
       </div>
       <div class="pie-fila">
         <a class="enlace" href="https://shukitostudio.github.io/zorro-privacidad/" target="_blank" rel="noopener" data-i="piePrivacidad"></a>
+        <a class="enlace" href="#privacidad-social" data-abrir-privacidad data-i="piePrivacidadSocial"></a>
       </div>
       <div class="pie-controles">
         <button type="button" id="btn-tema" class="btn-madera btn-chico" aria-pressed="false">
@@ -156,7 +162,72 @@
     </div>
   </footer>
 
+  <!-- Chat Social (solo para invitados). Se apaga en social.js -->
+  <div id="social" class="social" role="dialog" aria-modal="true" aria-labelledby="social-titulo" hidden>
+    <div class="social-caja">
+      <div class="social-cabecera">
+        <img class="social-logo" src="assets/logo.webp" alt="" width="48" height="48">
+        <div class="social-cabecera-texto">
+          <h2 id="social-titulo" data-i="socialTitulo"></h2>
+          <span id="social-estado" class="social-estado"></span>
+        </div>
+        <button type="button" id="social-salir" class="social-icono" data-i-label="socialSalir" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5v16h5M15 8l4 4-4 4M19 12H9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" id="social-cerrar" class="social-icono" data-i-label="socialCerrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <!-- Entrada: nombre y clave -->
+      <form id="social-entrar" class="social-entrar" autocomplete="off" novalidate>
+        <p class="social-intro" data-i="socialIntro"></p>
+        <label class="social-campo">
+          <span data-i="socialNombre"></span>
+          <input id="social-nombre" name="nombre" type="text" maxlength="16" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" data-i-ph="socialNombrePista" required>
+        </label>
+        <label class="social-campo">
+          <span data-i="socialClave"></span>
+          <input id="social-clave" name="clave" type="password" maxlength="64" autocomplete="off" required>
+        </label>
+        <p id="social-error" class="social-error" role="alert"></p>
+        <button type="submit" class="btn-madera btn-chico" id="social-boton-entrar"><span data-i="socialEntrar"></span></button>
+        <a class="enlace social-enlace-priv" href="#privacidad-social" data-abrir-privacidad data-i="piePrivacidadSocial"></a>
+      </form>
+
+      <!-- Chat -->
+      <div id="social-chat" class="social-chat" hidden>
+        <ul id="social-usuarios" class="social-usuarios" data-i-label="socialEnLinea"></ul>
+        <div id="social-mensajes" class="social-mensajes" aria-live="polite"></div>
+        <div id="social-escribiendo" class="social-escribiendo" aria-live="polite"></div>
+        <form id="social-form" class="social-form" autocomplete="off">
+          <textarea id="social-texto" rows="1" maxlength="500" data-i-ph="socialEscribe" data-i-label="socialEscribe"></textarea>
+          <button type="submit" id="social-enviar" class="social-enviar" data-i-label="socialEnviar" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l18-8L3 4v6l12 2-12 2z" fill="currentColor"/></svg>
+          </button>
+        </form>
+        <span id="social-contador" class="social-contador" aria-hidden="true"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Privacidad del chat Social -->
+  <div id="privacidad-social" class="social-priv" role="dialog" aria-modal="true" aria-labelledby="priv-titulo" hidden>
+    <div class="panel social-priv-panel">
+      <h2 id="priv-titulo" data-i="privTitulo"></h2>
+      <ul class="social-priv-lista">
+        <li data-i="priv1"></li>
+        <li data-i="priv2"></li>
+        <li data-i="priv3"></li>
+        <li data-i="priv4"></li>
+        <li data-i="priv5"></li>
+      </ul>
+      <button type="button" class="btn-madera btn-chico" id="priv-cerrar"><span data-i="privCerrar"></span></button>
+    </div>
+  </div>
+
   <script src="textos.js"></script>
   <script src="script.js"></script>
+  <script src="social.js"></script>
 </body>
 </html>
