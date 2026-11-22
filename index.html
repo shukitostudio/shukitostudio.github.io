@@ -165,35 +165,84 @@
   <!-- Chat Social (solo para invitados). Se apaga en social.js -->
   <div id="social" class="social" role="dialog" aria-modal="true" aria-labelledby="social-titulo" hidden>
     <div class="social-caja">
+      <!-- Franja de arriba: el mono de Shukito -->
       <div class="social-cabecera">
-        <img class="social-logo" src="assets/logo.webp" alt="" width="48" height="48">
+        <img class="social-logo" src="assets/logo.webp" alt="" width="40" height="40">
         <div class="social-cabecera-texto">
           <h2 id="social-titulo" data-i="socialTitulo"></h2>
           <span id="social-estado" class="social-estado"></span>
         </div>
-        <button type="button" id="social-salir" class="social-icono" data-i-label="socialSalir" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5v16h5M15 8l4 4-4 4M19 12H9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
         <button type="button" id="social-cerrar" class="social-icono" data-i-label="socialCerrar">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
         </button>
       </div>
 
-      <!-- Entrada: nombre y clave -->
+      <!-- Barra de perfil: mi foto, mi nombre y mi estado -->
+      <div id="social-perfil" class="social-perfil" hidden>
+        <button type="button" id="social-mi-avatar" class="social-avatar-boton" data-i-label="socialCambiarAvatar">
+          <span id="social-mi-avatar-img" class="social-avatar grande" aria-hidden="true"></span>
+        </button>
+        <div class="social-perfil-texto">
+          <strong id="social-mi-nombre" class="social-mi-nombre"></strong>
+          <button type="button" id="social-mi-estado" class="social-mi-estado" data-i-label="socialCambiarEstado"></button>
+          <form id="social-estado-form" class="social-estado-form" autocomplete="off" hidden>
+            <input id="social-estado-caja" type="text" maxlength="60" enterkeyhint="done" data-i-ph="socialEstadoPista" data-i-label="socialCambiarEstado">
+          </form>
+        </div>
+        <div class="social-menu-caja">
+          <button type="button" id="social-menu-boton" class="social-icono" aria-haspopup="menu" aria-expanded="false" aria-controls="social-menu" data-i-label="socialMenu">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.2" fill="currentColor"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><circle cx="12" cy="19" r="2.2" fill="currentColor"/></svg>
+          </button>
+          <div id="social-menu" class="social-menu" role="menu" hidden>
+            <button type="button" role="menuitem" id="social-op-avatar" data-i="socialCambiarAvatar"></button>
+            <button type="button" role="menuitem" id="social-op-estado" data-i="socialCambiarEstado"></button>
+            <button type="button" role="menuitem" id="social-op-salir" data-i="socialSalir"></button>
+            <button type="button" role="menuitem" id="social-op-borrar" class="peligro" data-i="socialBorrarCuenta"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Entrada: crear usuario o entrar con nombre y PIN -->
       <form id="social-entrar" class="social-entrar" autocomplete="off" novalidate>
         <p class="social-intro" data-i="socialIntro"></p>
+        <div class="social-pestanas" role="tablist">
+          <button type="button" role="tab" id="social-modo-nuevo" aria-selected="true" data-i="socialModoNuevo"></button>
+          <button type="button" role="tab" id="social-modo-entrar" aria-selected="false" data-i="socialModoEntrar"></button>
+        </div>
         <label class="social-campo">
           <span data-i="socialNombre"></span>
           <input id="social-nombre" name="nombre" type="text" maxlength="16" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" data-i-ph="socialNombrePista" required>
+        </label>
+        <fieldset id="social-elegir" class="social-elegir">
+          <legend data-i="socialAvatar"></legend>
+          <div id="social-avatares" class="social-avatares"></div>
+        </fieldset>
+        <label class="social-campo">
+          <span data-i="socialPin"></span>
+          <input id="social-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" data-i-ph="socialPinPista" required>
+          <small id="social-pin-nota" class="social-nota" data-i="socialPinNota"></small>
         </label>
         <label class="social-campo">
           <span data-i="socialClave"></span>
           <input id="social-clave" name="clave" type="password" maxlength="64" autocomplete="off" required>
         </label>
         <p id="social-error" class="social-error" role="alert"></p>
-        <button type="submit" class="btn-madera btn-chico" id="social-boton-entrar"><span data-i="socialEntrar"></span></button>
+        <button type="submit" class="social-boton" id="social-boton-entrar"><span data-i="socialCrear"></span></button>
         <a class="enlace social-enlace-priv" href="#privacidad-social" data-abrir-privacidad data-i="piePrivacidadSocial"></a>
       </form>
+
+      <!-- Cambiar foto o avatar -->
+      <div id="social-ventana-avatar" class="social-ventana" role="dialog" aria-modal="true" aria-labelledby="social-ventana-avatar-titulo" hidden>
+        <div class="social-ventana-caja">
+          <h3 id="social-ventana-avatar-titulo" data-i="socialCambiarAvatar"></h3>
+          <div id="social-avatares-cambiar" class="social-avatares"></div>
+          <p id="social-ventana-error" class="social-error" role="alert"></p>
+          <div class="social-ventana-botones">
+            <button type="button" id="social-avatar-cancelar" class="social-boton secundario"><span data-i="socialCancelar"></span></button>
+            <button type="button" id="social-avatar-guardar" class="social-boton"><span data-i="socialGuardar"></span></button>
+          </div>
+        </div>
+      </div>
 
       <!-- Chat -->
       <div id="social-chat" class="social-chat" hidden>

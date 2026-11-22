@@ -7,7 +7,19 @@
   if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) SOCIAL_SERVIDOR = 'http://127.0.0.1:8787';
 
   var CLAVE_LOCAL = 'shukito-social';
+  var CLAVE_NOMBRE = 'shukito-social-nombre'; // último nombre usado (para la pestaña "Ya tengo usuario")
   var MAX_LARGO = 500;
+  var MAX_ESTADO = 60;
+  var MAX_AVATAR = 40000;
+  var LADO_FOTO = 128;
+
+  // Avatares dibujados: un animal y un color de fondo. Se guardan como "e:0" ... "e:11".
+  var AVATARES = [
+    ['🐵', '#c9822f'], ['🦊', '#e0662c'], ['🐔', '#d6a419'], ['🐱', '#8a6bd1'],
+    ['🐶', '#3f8fd6'], ['🐼', '#4d5866'], ['🐸', '#3aa35b'], ['🐯', '#e08a1e'],
+    ['🦁', '#b8722c'], ['🐨', '#7c8da3'], ['🐰', '#d46a9a'], ['🐧', '#2f6f8f']
+  ];
+  var FOTO_VALIDA = /^data:image\/(?:webp|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/;
 
   var $ = function (id) { return document.getElementById(id); };
   var t = function (clave, datos) {
@@ -38,16 +50,18 @@
 
   var URL_WS = SOCIAL_SERVIDOR.replace(/^http/, 'ws') + '/ws';
 
-  /* ---------- Sesión guardada en el teléfono ---------- */
+  /* ---------- Datos guardados en el teléfono ---------- */
+  function leer(clave) { try { return localStorage.getItem(clave); } catch (e) { return null; } }
+  function guardar(clave, valor) { try { localStorage.setItem(clave, valor); } catch (e) { /* nada */ } }
+  function quitar(clave) { try { localStorage.removeItem(clave); } catch (e) { /* nada */ } }
   function leerSesion() {
-    try { var s = JSON.parse(localStorage.getItem(CLAVE_LOCAL) || 'null'); return s && s.token ? s : null; } catch (e) { return null; }
+    try { var s = JSON.parse(leer(CLAVE_LOCAL) || 'null'); return s && s.token ? s : null; } catch (e) { return null; }
   }
-  function guardarSesion(s) { try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(s)); } catch (e) { /* nada */ } }
-  function borrarSesion() { try { localStorage.removeItem(CLAVE_LOCAL); } catch (e) { /* nada */ } }
 
   var raiz = $('social');
   var boton = $('btn-social');
   var formEntrar = $('social-entrar');
+  var barraPerfil = $('social-perfil');
   var chat = $('social-chat');
   var lista = $('social-mensajes');
   var caja = $('social-texto');
@@ -55,6 +69,9 @@
   var estadoTxt = $('social-estado');
   var avisoEscribe = $('social-escribiendo');
   var contador = $('social-contador');
+  var menu = $('social-menu');
+  var botonMenu = $('social-menu-boton');
+  var ventanaAvatar = $('social-ventana-avatar');
 
   boton.hidden = false;
 
@@ -63,11 +80,159 @@
   var mensajes = [];          // {id, nombre, texto, ts}
   var pendientes = {};        // cid -> nodo de la burbuja
   var usuarios = [];          // {n, leido, enLinea}
+  var perfiles = {};          // nombre en minúsculas -> {n, avatar, estado}
   var escribiendo = {};       // nombre -> hora límite
   var horas = 24;
   var abierto = false;
   var ultimoAvisoEscribe = 0;
   var ultimoEnvio = 0;
+  var modo = 'nuevo';         // 'nuevo' (crear usuario) o 'entrar' (ya tengo usuario)
+  var avatarElegido = 'e:0';  // en el registro
+  var avatarNuevo = null;     // en la ventana de cambiar avatar
+
+  /* ---------- Avatares ---------- */
+  // Dibuja un avatar dentro de "el". Las fotos solo se aceptan como imagen (data:image/webp o jpeg).
+  function pintarAvatar(el, avatar, nombre) {
+    el.textContent = '';
+    el.style.background = '';
+    el.classList.remove('es-foto');
+    var m = /^e:(\d+)$/.exec(avatar || '');
+    if (m && AVATARES[+m[1]]) {
+      el.style.background = AVATARES[+m[1]][1];
+      el.textContent = AVATARES[+m[1]][0];
+    } else if (avatar && FOTO_VALIDA.test(avatar)) {
+      var img = document.createElement('img');
+      img.alt = '';
+      img.src = avatar;
+      el.appendChild(img);
+      el.classList.add('es-foto');
+    } else {
+      el.style.background = '#6b7280';
+      el.textContent = (nombre || '?').charAt(0).toUpperCase();
+    }
+  }
+
+  // Cuadrícula de avatares + botón "Foto". alElegir(avatar) se llama con "e:N" o con la foto ya reducida.
+  function crearSelector(contenedor, alElegir, errorEl) {
+    contenedor.textContent = '';
+    contenedor.setAttribute('role', 'radiogroup');
+    var opciones = [];
+    function marcar(op) {
+      for (var i = 0; i < opciones.length; i++) {
+        var si = opciones[i] === op;
+        opciones[i].setAttribute('aria-checked', si ? 'true' : 'false');
+        opciones[i].tabIndex = si ? 0 : -1;
+      }
+    }
+    AVATARES.forEach(function (a, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'social-opcion';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-label', t('socialAvatarN', { n: i + 1 }));
+      var s = document.createElement('span');
+      s.className = 'social-avatar';
+      s.setAttribute('aria-hidden', 'true');
+      pintarAvatar(s, 'e:' + i);
+      b.appendChild(s);
+      b.addEventListener('click', function () { marcar(b); alElegir('e:' + i); });
+      contenedor.appendChild(b);
+      opciones.push(b);
+    });
+    // Foto propia
+    var entrada = document.createElement('input');
+    entrada.type = 'file';
+    entrada.accept = 'image/*';
+    entrada.hidden = true;
+    var bf = document.createElement('button');
+    bf.type = 'button';
+    bf.className = 'social-opcion foto';
+    bf.setAttribute('role', 'radio');
+    bf.setAttribute('aria-label', t('socialFoto'));
+    var sf = document.createElement('span');
+    sf.className = 'social-avatar';
+    sf.setAttribute('aria-hidden', 'true');
+    sf.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+    bf.appendChild(sf);
+    var etiqueta = document.createElement('span');
+    etiqueta.className = 'social-opcion-texto';
+    etiqueta.textContent = t('socialFoto');
+    bf.appendChild(etiqueta);
+    bf.addEventListener('click', function () { entrada.click(); });
+    entrada.addEventListener('change', function () {
+      var archivo = entrada.files && entrada.files[0];
+      entrada.value = '';
+      if (!archivo) return;
+      if (errorEl) errorEl.textContent = '';
+      reducirFoto(archivo).then(function (datos) {
+        pintarAvatar(sf, datos);
+        marcar(bf);
+        alElegir(datos);
+      }).catch(function () {
+        if (errorEl) errorEl.textContent = t('socialErrFoto');
+      });
+    });
+    contenedor.appendChild(bf);
+    contenedor.appendChild(entrada);
+    // Flechas para moverse entre opciones (como un grupo de radio).
+    contenedor.addEventListener('keydown', function (e) {
+      var i = opciones.concat([bf]).indexOf(document.activeElement);
+      if (i < 0) return;
+      var todos = opciones.concat([bf]);
+      var paso = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 0;
+      if (!paso) return;
+      e.preventDefault();
+      var sig = todos[(i + paso + todos.length) % todos.length];
+      sig.focus();
+      if (sig !== bf) sig.click();
+    });
+    return {
+      elegir: function (avatar) {
+        var m = /^e:(\d+)$/.exec(avatar || '');
+        if (m && opciones[+m[1]]) { marcar(opciones[+m[1]]); return; }
+        if (avatar && FOTO_VALIDA.test(avatar)) { pintarAvatar(sf, avatar); marcar(bf); return; }
+        marcar(opciones[0]);
+      },
+      etiquetas: function () {
+        for (var i = 0; i < opciones.length; i++) opciones[i].setAttribute('aria-label', t('socialAvatarN', { n: i + 1 }));
+        bf.setAttribute('aria-label', t('socialFoto'));
+        etiqueta.textContent = t('socialFoto');
+      }
+    };
+  }
+
+  // Recorta la foto en cuadrado y la reduce a 128 px (WebP, o JPEG si el navegador no sabe hacer WebP).
+  function reducirFoto(archivo) {
+    return new Promise(function (ok, mal) {
+      if (!/^image\//.test(archivo.type || 'image/')) { mal(); return; }
+      var url = URL.createObjectURL(archivo);
+      var img = new Image();
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        var lado = Math.min(img.naturalWidth, img.naturalHeight);
+        if (!lado) { mal(); return; }
+        var lienzo = document.createElement('canvas');
+        lienzo.width = lienzo.height = LADO_FOTO;
+        var ctx = lienzo.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, (img.naturalWidth - lado) / 2, (img.naturalHeight - lado) / 2, lado, lado, 0, 0, LADO_FOTO, LADO_FOTO);
+        var calidad = 0.82, datos;
+        do {
+          datos = lienzo.toDataURL('image/webp', calidad);
+          if (datos.indexOf('data:image/webp') !== 0) datos = lienzo.toDataURL('image/jpeg', calidad);
+          calidad -= 0.12;
+        } while (datos.length > MAX_AVATAR && calidad > 0.3);
+        if (datos.length > MAX_AVATAR || !FOTO_VALIDA.test(datos)) { mal(); return; }
+        ok(datos);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); mal(); };
+      img.src = url;
+    });
+  }
+
+  var selectorRegistro = crearSelector($('social-avatares'), function (a) { avatarElegido = a; }, $('social-error'));
+  selectorRegistro.elegir(avatarElegido);
+  var selectorCambiar = crearSelector($('social-avatares-cambiar'), function (a) { avatarNuevo = a; }, $('social-ventana-error'));
 
   /* ---------- Abrir / cerrar ---------- */
   function abrir() {
@@ -81,6 +246,9 @@
   function cerrar(desdeAtras) {
     if (!abierto) return;
     abierto = false;
+    cerrarMenu(false);
+    cerrarVentanaAvatar();
+    cancelarEstado();
     raiz.hidden = true;
     document.documentElement.classList.remove('social-abierto');
     desconectar();
@@ -92,81 +260,235 @@
   window.addEventListener('popstate', function () { if (abierto) cerrar(true); });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    if (!priv.hidden) cerrarPrivacidad(); else if (abierto) cerrar(false);
+    if (!priv.hidden) cerrarPrivacidad();
+    else if (!ventanaAvatar.hidden) cerrarVentanaAvatar();
+    else if (!menu.hidden) cerrarMenu(true);
+    else if (!$('social-estado-form').hidden) cancelarEstado();
+    else if (abierto) cerrar(false);
   });
 
   function mostrarEntrar(error) {
     chat.hidden = true;
+    barraPerfil.hidden = true;
     formEntrar.hidden = false;
-    $('social-salir').hidden = true;
     estadoTxt.textContent = '';
+    var ultimo = leer(CLAVE_NOMBRE);
+    if (ultimo && !$('social-nombre').value) $('social-nombre').value = ultimo;
+    ponerModo(ultimo ? 'entrar' : modo);
     $('social-error').textContent = error || '';
-    setTimeout(function () { $('social-nombre').focus(); }, 50);
+    setTimeout(function () { (ultimo ? $('social-pin') : $('social-nombre')).focus(); }, 50);
   }
   function mostrarChat() {
     formEntrar.hidden = true;
     chat.hidden = false;
-    $('social-salir').hidden = false;
+    barraPerfil.hidden = false;
+    pintarPerfil();
     estadoTxt.textContent = t('socialConectando');
   }
 
-  /* ---------- Entrar con nombre y clave ---------- */
+  /* ---------- Crear usuario o entrar ---------- */
+  function ponerModo(nuevo) {
+    modo = nuevo;
+    $('social-modo-nuevo').setAttribute('aria-selected', modo === 'nuevo' ? 'true' : 'false');
+    $('social-modo-entrar').setAttribute('aria-selected', modo === 'entrar' ? 'true' : 'false');
+    $('social-elegir').hidden = modo !== 'nuevo';
+    $('social-pin-nota').hidden = modo !== 'nuevo';
+    var etiqueta = $('social-boton-entrar').firstElementChild;
+    etiqueta.setAttribute('data-i', modo === 'nuevo' ? 'socialCrear' : 'socialEntrar');
+    etiqueta.textContent = t(modo === 'nuevo' ? 'socialCrear' : 'socialEntrar');
+    $('social-error').textContent = '';
+  }
+  $('social-modo-nuevo').addEventListener('click', function () { ponerModo('nuevo'); $('social-nombre').focus(); });
+  $('social-modo-entrar').addEventListener('click', function () { ponerModo('entrar'); $('social-nombre').focus(); });
+  $('social-pin').addEventListener('input', function () { this.value = this.value.replace(/\D/g, '').slice(0, 6); });
+
   formEntrar.addEventListener('submit', function (e) {
     e.preventDefault();
     var nombre = $('social-nombre').value.trim();
+    var pin = $('social-pin').value;
     var clave = $('social-clave').value;
     var error = $('social-error');
     if (!/^[A-Za-z0-9]{3,16}$/.test(nombre)) { error.textContent = t('socialErrNombre'); $('social-nombre').focus(); return; }
-    if (!clave) { $('social-clave').focus(); return; }
+    if (!/^[0-9]{4,6}$/.test(pin)) { error.textContent = t('socialErrPin'); $('social-pin').focus(); return; }
+    if (!clave) { error.textContent = t('socialErrFaltaClave'); $('social-clave').focus(); return; }
     var b = $('social-boton-entrar');
+    var etiqueta = b.firstElementChild;
     b.disabled = true;
-    b.firstElementChild.textContent = t('socialEntrando');
+    etiqueta.textContent = t('socialEntrando');
     error.textContent = '';
-    fetch(SOCIAL_SERVIDOR + '/entrar', {
+    var datos = { nombre: nombre, pin: pin, clave: clave };
+    if (modo === 'nuevo') datos.avatar = avatarElegido;
+    fetch(SOCIAL_SERVIDOR + (modo === 'nuevo' ? '/registrar' : '/entrar'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nombre: nombre, clave: clave })
+      body: JSON.stringify(datos)
     }).then(function (r) {
       return r.json().then(function (d) { return { ok: r.ok, d: d }; });
     }).then(function (res) {
       if (res.ok && res.d.token) {
         sesion = { token: res.d.token, nombre: res.d.nombre };
-        guardarSesion(sesion);
+        guardar(CLAVE_LOCAL, JSON.stringify(sesion));
+        guardar(CLAVE_NOMBRE, res.d.nombre);
         $('social-clave').value = '';
+        $('social-pin').value = '';
         mostrarChat();
         conectar();
         return;
       }
       var d = res.d || {};
-      if (d.error === 'bloqueado') error.textContent = t('socialErrBloqueado', { m: Math.max(1, Math.ceil((d.espera || 600) / 60)) });
+      var minutos = Math.max(1, Math.ceil((d.espera || 600) / 60));
+      if (d.error === 'bloqueado') error.textContent = t('socialErrBloqueado', { m: minutos });
+      else if (d.error === 'cuenta_bloqueada') error.textContent = t('socialErrCuentaBloqueada', { m: minutos });
       else if (d.error === 'clave') error.textContent = t('socialErrClave', { n: d.quedan });
+      else if (d.error === 'credenciales') error.textContent = t('socialErrCredenciales', { n: d.quedan });
       else if (d.error === 'en_uso') error.textContent = t('socialErrEnUso');
       else if (d.error === 'nombre') error.textContent = t('socialErrNombre');
+      else if (d.error === 'pin') error.textContent = t('socialErrPin');
+      else if (d.error === 'avatar') error.textContent = t('socialErrAvatar');
       else error.textContent = t('socialErrRed');
       $('social-clave').value = '';
+      if (d.error === 'credenciales') $('social-pin').value = '';
     }).catch(function () {
       error.textContent = t('socialErrRed');
     }).then(function () {
       b.disabled = false;
-      b.firstElementChild.textContent = t('socialEntrar');
+      etiqueta.textContent = t(modo === 'nuevo' ? 'socialCrear' : 'socialEntrar');
     });
   });
 
-  $('social-salir').addEventListener('click', function () {
+  function terminarSesion(error) {
+    quitar(CLAVE_LOCAL);
+    sesion = null;
+    desconectar();
+    cerrarMenu(false);
+    cerrarVentanaAvatar();
+    cancelarEstado();
+    mensajes = []; usuarios = []; pendientes = {}; perfiles = {};
+    lista.textContent = '';
+    $('social-usuarios').textContent = '';
+    if (abierto) mostrarEntrar(error);
+  }
+
+  /* ---------- Barra de perfil ---------- */
+  function miPerfil() {
+    return (sesion && perfiles[sesion.nombre.toLowerCase()]) || { n: sesion ? sesion.nombre : '', avatar: '', estado: '' };
+  }
+  function pintarPerfil() {
+    if (!sesion) return;
+    var p = miPerfil();
+    pintarAvatar($('social-mi-avatar-img'), p.avatar, p.n);
+    $('social-mi-nombre').textContent = p.n;
+    var e = $('social-mi-estado');
+    e.textContent = p.estado || t('socialSinEstado');
+    e.classList.toggle('vacio', !p.estado);
+  }
+
+  // Estado: se toca el texto y se escribe ahí mismo.
+  var formEstado = $('social-estado-form');
+  var cajaEstado = $('social-estado-caja');
+  function editarEstado() {
+    if (!ws || ws.readyState !== 1) return;
+    cerrarMenu(false);
+    cajaEstado.value = miPerfil().estado || '';
+    $('social-mi-estado').hidden = true;
+    formEstado.hidden = false;
+    cajaEstado.focus();
+    cajaEstado.select();
+  }
+  function cancelarEstado() {
+    if (formEstado.hidden) return;
+    formEstado.hidden = true;
+    $('social-mi-estado').hidden = false;
+  }
+  function guardarEstado() {
+    if (formEstado.hidden) return;
+    var nuevo = cajaEstado.value.replace(/\s+/g, ' ').trim();
+    if (Array.from(nuevo).length > MAX_ESTADO) nuevo = Array.from(nuevo).slice(0, MAX_ESTADO).join('');
+    cancelarEstado();
+    if (nuevo === (miPerfil().estado || '')) return;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ t: 'perfil', estado: nuevo }));
+      // Se muestra enseguida; el servidor lo confirma con "perfil".
+      var p = miPerfil();
+      perfiles[sesion.nombre.toLowerCase()] = { n: p.n, avatar: p.avatar, estado: nuevo };
+      pintarPerfil();
+    }
+  }
+  $('social-mi-estado').addEventListener('click', editarEstado);
+  $('social-op-estado').addEventListener('click', editarEstado);
+  formEstado.addEventListener('submit', function (e) { e.preventDefault(); guardarEstado(); $('social-mi-estado').focus(); });
+  cajaEstado.addEventListener('blur', guardarEstado);
+
+  // Menú de tres puntos
+  function abrirMenu() {
+    menu.hidden = false;
+    botonMenu.setAttribute('aria-expanded', 'true');
+    menu.querySelector('button').focus();
+  }
+  function cerrarMenu(devolverFoco) {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    botonMenu.setAttribute('aria-expanded', 'false');
+    if (devolverFoco) botonMenu.focus();
+  }
+  botonMenu.addEventListener('click', function () { if (menu.hidden) abrirMenu(); else cerrarMenu(true); });
+  document.addEventListener('click', function (e) {
+    if (!menu.hidden && !menu.contains(e.target) && !botonMenu.contains(e.target)) cerrarMenu(false);
+  });
+  menu.addEventListener('keydown', function (e) {
+    var items = Array.prototype.slice.call(menu.querySelectorAll('button'));
+    var i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Tab') cerrarMenu(false);
+  });
+
+  // Cambiar foto o avatar
+  function abrirVentanaAvatar() {
+    cerrarMenu(false);
+    if (!ws || ws.readyState !== 1) return;
+    avatarNuevo = null;
+    selectorCambiar.elegir(miPerfil().avatar);
+    $('social-ventana-error').textContent = '';
+    ventanaAvatar.hidden = false;
+    var marcado = ventanaAvatar.querySelector('[aria-checked="true"]');
+    (marcado || $('social-avatar-guardar')).focus();
+  }
+  function cerrarVentanaAvatar() {
+    if (ventanaAvatar.hidden) return;
+    ventanaAvatar.hidden = true;
+    if (abierto && !barraPerfil.hidden) $('social-mi-avatar').focus();
+  }
+  $('social-mi-avatar').addEventListener('click', abrirVentanaAvatar);
+  $('social-op-avatar').addEventListener('click', abrirVentanaAvatar);
+  $('social-avatar-cancelar').addEventListener('click', cerrarVentanaAvatar);
+  ventanaAvatar.addEventListener('click', function (e) { if (e.target === ventanaAvatar) cerrarVentanaAvatar(); });
+  $('social-avatar-guardar').addEventListener('click', function () {
+    if (avatarNuevo && avatarNuevo !== miPerfil().avatar && ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ t: 'perfil', avatar: avatarNuevo }));
+      var p = miPerfil();
+      perfiles[sesion.nombre.toLowerCase()] = { n: p.n, avatar: avatarNuevo, estado: p.estado };
+      pintarPerfil();
+    }
+    cerrarVentanaAvatar();
+  });
+
+  $('social-op-salir').addEventListener('click', function () {
+    cerrarMenu(false);
     if (!window.confirm(t('socialSalirConfirmar'))) return;
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'salir' }));
     terminarSesion('');
   });
-
-  function terminarSesion(error) {
-    borrarSesion();
-    sesion = null;
-    desconectar();
-    mensajes = []; usuarios = []; pendientes = {};
-    lista.textContent = '';
-    $('social-usuarios').textContent = '';
-    mostrarEntrar(error);
-  }
+  $('social-op-borrar').addEventListener('click', function () {
+    cerrarMenu(false);
+    if (!window.confirm(t('socialBorrarConfirmar'))) return;
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    ws.send(JSON.stringify({ t: 'borrar_cuenta' }));
+    quitar(CLAVE_NOMBRE);
+    $('social-nombre').value = '';
+    modo = 'nuevo';
+    terminarSesion(t('socialCuentaBorrada'));
+  });
 
   /* ---------- Conexión ---------- */
   function conectar() {
@@ -206,11 +528,19 @@
   });
 
   /* ---------- Mensajes del servidor ---------- */
+  function ponerPerfil(p) {
+    if (!p || !p.n) return;
+    perfiles[p.n.toLowerCase()] = { n: p.n, avatar: p.avatar, estado: p.estado || '' };
+  }
+
   function recibir(m) {
     if (m.t === 'hola') {
       reintento = 0;
       horas = m.horas || 24;
       sesion.nombre = m.yo;
+      perfiles = {};
+      (m.perfiles || []).forEach(ponerPerfil);
+      pintarPerfil();
       mensajes = m.mensajes || [];
       pendientes = {};
       pintarTodo();
@@ -219,11 +549,16 @@
       latido = setInterval(function () { if (ws && ws.readyState === 1) ws.send('ping'); }, 25000);
       marcarLeido();
     } else if (m.t === 'sesion_invalida') {
-      terminarSesion(t('socialErrSesion'));
+      terminarSesion(t(m.motivo === 'cuenta_borrada' ? 'socialCuentaBorrada' : 'socialErrSesion'));
     } else if (m.t === 'estado') {
       usuarios = m.usuarios || [];
       pintarUsuarios();
       actualizarMarcas();
+    } else if (m.t === 'perfil') {
+      ponerPerfil(m.p);
+      if (sesion && m.p && m.p.n.toLowerCase() === sesion.nombre.toLowerCase()) pintarPerfil();
+    } else if (m.t === 'perfil_borrado') {
+      if (m.n) delete perfiles[m.n.toLowerCase()];
     } else if (m.t === 'msg') {
       var mm = m.m;
       if (mensajes.some(function (x) { return x.id === mm.id; })) return;
@@ -247,7 +582,8 @@
     } else if (m.t === 'error') {
       var p = m.cid && pendientes[m.cid];
       if (p) { delete pendientes[m.cid]; p.remove(); }
-      mostrarAviso(m.e === 'rapido' ? t('socialErrRapido') : m.e === 'largo' ? t('socialErrLargo') : '');
+      mostrarAviso(m.e === 'rapido' ? t('socialErrRapido') : m.e === 'largo' ? t('socialErrLargo')
+        : m.e === 'estado_largo' ? t('socialErrEstado') : m.e === 'avatar' ? t('socialErrFoto') : '');
     }
   }
 
@@ -428,7 +764,12 @@
 
   // Cambio de idioma: rehacer los textos dinámicos.
   document.addEventListener('shukito-idioma', function () {
+    selectorRegistro.etiquetas();
+    selectorCambiar.etiquetas();
+    var etiqueta = $('social-boton-entrar').firstElementChild;
+    if (!$('social-boton-entrar').disabled) etiqueta.textContent = t(modo === 'nuevo' ? 'socialCrear' : 'socialEntrar');
     if (!abierto) return;
+    if (sesion && !chat.hidden) pintarPerfil();
     if (sesion && !chat.hidden && ws && ws.readyState === 1) { pintarTodo(); pintarUsuarios(); pintarEscribiendo(); }
     else if (!chat.hidden) estadoTxt.textContent = t('socialConectando');
   });

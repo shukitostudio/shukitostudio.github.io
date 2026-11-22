@@ -1,12 +1,23 @@
-// Chat Social de Shukito Studio: un solo chat de grupo para unos pocos invitados.
-// Worker + un Durable Object ("SalaSocial") con WebSocket. La clave vive en el secreto CLAVE.
+// Chat Social de Shukito Studio: un chat de grupo para unos pocos invitados.
+// Worker + un Durable Object ("SalaSocial") con WebSocket. La clave del grupo vive en el secreto CLAVE.
 import { DurableObject } from "cloudflare:workers";
 
 const NOMBRE_VALIDO = /^[A-Za-z0-9]{3,16}$/;
+const PIN_VALIDO = /^[0-9]{4,6}$/;
+const AVATAR_PREDEF = /^e:(?:[0-9]|1[01])$/;            // 12 avatares dibujados en la página
+const AVATAR_FOTO = /^data:image\/(?:webp|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/;
+const MAX_AVATAR = 40000;       // caracteres de la foto (ya reducida a 128 px en el teléfono)
+const MAX_ESTADO = 60;          // caracteres del estado
 const MAX_LARGO = 500;          // caracteres por mensaje
-const INTENTOS_MAX = 5;         // intentos fallidos de clave por IP...
+const MAX_CUERPO = 50000;       // bytes que se aceptan al registrarse o entrar
+const MAX_WS = 50000;           // caracteres por mensaje de WebSocket
+const INTENTOS_MAX = 5;         // intentos fallidos por IP...
 const INTENTOS_VENTANA = 10 * 60 * 1000; // ...cada 10 minutos
+const PIN_FALLOS_MAX = 5;       // PIN equivocado 5 veces seguidas...
+const PIN_BLOQUEO = 60 * 60 * 1000;      // ...bloquea esa cuenta 1 hora
+const PIN_VUELTAS = 100000;     // PBKDF2
 const ESPERA_ENTRE_MENSAJES = 1000;      // un mensaje por segundo
+const ESPERA_ENTRE_PERFILES = 2000;      // un cambio de perfil cada 2 segundos
 const LIMPIEZA_CADA = 60 * 60 * 1000;    // revisar mensajes viejos cada hora
 
 function origenPermitido(request, env) {
@@ -45,10 +56,10 @@ export default {
     const cabeceras = new Headers(request.headers);
     cabeceras.set("X-Social-IP", request.headers.get("CF-Connecting-IP") || "desconocida");
 
-    if (url.pathname === "/entrar" && request.method === "POST") {
-      const cuerpo = (await request.text()).slice(0, 2000);
+    if ((url.pathname === "/entrar" || url.pathname === "/registrar") && request.method === "POST") {
+      const cuerpo = (await request.text()).slice(0, MAX_CUERPO);
       cabeceras.delete("Content-Length");
-      const r = await sala.fetch(new Request("https://sala/entrar", { method: "POST", headers: cabeceras, body: cuerpo }));
+      const r = await sala.fetch(new Request("https://sala" + url.pathname, { method: "POST", headers: cabeceras, body: cuerpo }));
       return new Response(r.body, { status: r.status, headers: { ...Object.fromEntries(r.headers), ...cors(origen) } });
     }
 
@@ -61,15 +72,40 @@ export default {
   },
 };
 
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+const deHex = (s) => new Uint8Array(s.match(/../g).map((h) => parseInt(h, 16)));
+
 async function sha256(texto) {
-  const datos = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto));
-  return [...new Uint8Array(datos)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto)));
 }
 
-function tokenNuevo() {
-  const b = new Uint8Array(32);
+function aleatorio(bytes) {
+  const b = new Uint8Array(bytes);
   crypto.getRandomValues(b);
-  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return hex(b);
+}
+
+async function hashPin(pin, sal) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: deHex(sal), iterations: PIN_VUELTAS }, base, 256);
+  return hex(bits);
+}
+
+function iguales(a, b) {
+  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
+  return x.length === y.length && crypto.subtle.timingSafeEqual(x, y);
+}
+
+function avatarValido(a) {
+  return typeof a === "string" && (AVATAR_PREDEF.test(a) || (a.length <= MAX_AVATAR && AVATAR_FOTO.test(a)));
+}
+
+// Quita caracteres de control y espacios sobrantes. "lineas" deja saltos de línea.
+function limpiarTexto(s, lineas) {
+  s = String(s || "");
+  s = lineas ? s.replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, "").replace(/\n{3,}/g, "\n\n")
+             : s.replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ");
+  return s.trim();
 }
 
 export class SalaSocial extends DurableObject {
@@ -77,11 +113,19 @@ export class SalaSocial extends DurableObject {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     this.ultimoEnvio = new Map();
+    this.ultimoPerfil = new Map();
     this.sql.exec(`CREATE TABLE IF NOT EXISTS mensajes (
       id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, texto TEXT NOT NULL, ts INTEGER NOT NULL)`);
+    // Versión 1 de "usuarios" (sin PIN ni perfil): se reemplaza. Los invitados vuelven a crear su usuario una vez.
+    const vieja = this.sql.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'usuarios'").toArray()[0];
+    if (vieja && !String(vieja.sql).includes("pin_hash")) this.sql.exec("DROP TABLE usuarios");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS usuarios (
-      nombre TEXT PRIMARY KEY COLLATE NOCASE, token TEXT NOT NULL UNIQUE, clave_hash TEXT NOT NULL,
-      visto INTEGER NOT NULL, leido INTEGER NOT NULL DEFAULT 0)`);
+      nombre TEXT PRIMARY KEY COLLATE NOCASE, pin_hash TEXT NOT NULL, pin_sal TEXT NOT NULL,
+      avatar TEXT NOT NULL, estado TEXT NOT NULL DEFAULT '', creado INTEGER NOT NULL, visto INTEGER NOT NULL,
+      leido INTEGER NOT NULL DEFAULT 0, fallos INTEGER NOT NULL DEFAULT 0, bloqueo INTEGER NOT NULL DEFAULT 0)`);
+    // Una sesión por teléfono o computadora. Solo se guarda el hash del token.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS sesiones (
+      token_hash TEXT PRIMARY KEY, nombre TEXT NOT NULL COLLATE NOCASE, visto INTEGER NOT NULL)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS intentos (ip TEXT NOT NULL, ts INTEGER NOT NULL)`);
     // Responde "pong" a los "ping" del teléfono sin despertar al servidor.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
@@ -93,9 +137,12 @@ export class SalaSocial extends DurableObject {
 
   limpiar() {
     const ahora = Date.now();
+    const limite = ahora - this.diasSesion() * 86400 * 1000;
     this.sql.exec("DELETE FROM mensajes WHERE ts < ?", ahora - this.horas() * 3600 * 1000);
     this.sql.exec("DELETE FROM mensajes WHERE id NOT IN (SELECT id FROM mensajes ORDER BY id DESC LIMIT ?)", this.maxMensajes());
-    this.sql.exec("DELETE FROM usuarios WHERE visto < ?", ahora - this.diasSesion() * 86400 * 1000);
+    this.sql.exec("DELETE FROM sesiones WHERE visto < ?", limite);
+    this.sql.exec("DELETE FROM usuarios WHERE visto < ?", limite);
+    this.sql.exec("DELETE FROM sesiones WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
     this.sql.exec("DELETE FROM intentos WHERE ts < ?", ahora - INTENTOS_VENTANA);
   }
 
@@ -114,7 +161,11 @@ export class SalaSocial extends DurableObject {
   async fetch(request) {
     const url = new URL(request.url);
     const ip = request.headers.get("X-Social-IP") || "desconocida";
-    if (url.pathname === "/entrar") return this.entrar(request, ip);
+    if (url.pathname === "/entrar" || url.pathname === "/registrar") {
+      let datos;
+      try { datos = await request.json(); } catch (e) { datos = null; }
+      return url.pathname === "/registrar" ? this.registrar(datos, ip) : this.entrar(datos, ip);
+    }
     if (url.pathname === "/ws") {
       const par = new WebSocketPair();
       this.ctx.acceptWebSocket(par[1]);
@@ -124,40 +175,97 @@ export class SalaSocial extends DurableObject {
     return new Response("No encontrado", { status: 404 });
   }
 
-  async entrar(request, ip) {
-    let datos;
-    try { datos = await request.json(); } catch (e) { datos = null; }
-    this.limpiar();
-    const ahora = Date.now();
-    const fallidos = this.sql.exec("SELECT COUNT(*) AS c, MIN(ts) AS primero FROM intentos WHERE ip = ?", ip).one();
+  // ---------- Registro y entrada ----------
+  fallidosDe(ip) {
+    return this.sql.exec("SELECT COUNT(*) AS c, MIN(ts) AS primero FROM intentos WHERE ip = ?", ip).one();
+  }
+
+  // Anota un intento fallido. Devuelve cuántos le quedan a esa IP.
+  fallar(ip, ahora) {
+    this.sql.exec("INSERT INTO intentos (ip, ts) VALUES (?, ?)", ip, ahora);
+    return INTENTOS_MAX - this.fallidosDe(ip).c;
+  }
+
+  // Revisa el bloqueo por IP y la clave del grupo. Devuelve una respuesta de error, o null si todo bien.
+  async revisarClave(datos, ip, ahora) {
+    const fallidos = this.fallidosDe(ip);
     if (fallidos.c >= INTENTOS_MAX) {
       const espera = Math.ceil((fallidos.primero + INTENTOS_VENTANA - ahora) / 1000);
       return json({ error: "bloqueado", espera: Math.max(1, espera) }, 429);
     }
-
-    if (!datos) return json({ error: "datos" }, 400);
-    const nombre = String((datos && datos.nombre) || "").trim();
-    const clave = String((datos && datos.clave) || "");
-
+    if (!datos || typeof datos !== "object") return json({ error: "datos" }, 400);
     if (!this.env.CLAVE) return json({ error: "sin_clave" }, 500);
-    const a = new TextEncoder().encode(await sha256(clave));
-    const b = new TextEncoder().encode(await sha256(this.env.CLAVE));
-    if (!crypto.subtle.timingSafeEqual(a, b)) {
-      this.sql.exec("INSERT INTO intentos (ip, ts) VALUES (?, ?)", ip, ahora);
-      const quedan = INTENTOS_MAX - (fallidos.c + 1);
+    if (!iguales(await sha256(String(datos.clave || "")), await sha256(this.env.CLAVE))) {
+      const quedan = this.fallar(ip, ahora);
       if (quedan <= 0) return json({ error: "bloqueado", espera: Math.ceil(INTENTOS_VENTANA / 1000) }, 429);
       return json({ error: "clave", quedan }, 401);
     }
+    return null;
+  }
 
+  async nuevaSesion(nombre, ahora) {
+    const token = aleatorio(32);
+    this.sql.exec("INSERT INTO sesiones (token_hash, nombre, visto) VALUES (?, ?, ?)", await sha256(token), nombre, ahora);
+    return token;
+  }
+
+  async registrar(datos, ip) {
+    this.limpiar();
+    const ahora = Date.now();
+    const error = await this.revisarClave(datos, ip, ahora);
+    if (error) return error;
+
+    const nombre = String(datos.nombre || "").trim();
+    const pin = String(datos.pin || "");
+    const avatar = datos.avatar;
     if (!NOMBRE_VALIDO.test(nombre)) return json({ error: "nombre" }, 400);
-    const existe = this.sql.exec("SELECT nombre FROM usuarios WHERE nombre = ?", nombre).toArray();
-    if (existe.length) return json({ error: "en_uso" }, 409);
+    if (!PIN_VALIDO.test(pin)) return json({ error: "pin" }, 400);
+    if (!avatarValido(avatar)) return json({ error: "avatar" }, 400);
+    if (this.sql.exec("SELECT nombre FROM usuarios WHERE nombre = ?", nombre).toArray().length) return json({ error: "en_uso" }, 409);
 
-    const token = tokenNuevo();
-    this.sql.exec("INSERT INTO usuarios (nombre, token, clave_hash, visto, leido) VALUES (?, ?, ?, ?, ?)",
-      nombre, token, await sha256(this.env.CLAVE), ahora, 0);
+    const sal = aleatorio(16);
+    this.sql.exec(`INSERT INTO usuarios (nombre, pin_hash, pin_sal, avatar, estado, creado, visto, leido)
+      VALUES (?, ?, ?, ?, '', ?, ?, 0)`, nombre, await hashPin(pin, sal), sal, avatar, ahora, ahora);
     this.sql.exec("DELETE FROM intentos WHERE ip = ?", ip);
+    const token = await this.nuevaSesion(nombre, ahora);
+    this.enviarATodos({ t: "perfil", p: { n: nombre, avatar, estado: "" } });
     return json({ token, nombre });
+  }
+
+  async entrar(datos, ip) {
+    this.limpiar();
+    const ahora = Date.now();
+    const error = await this.revisarClave(datos, ip, ahora);
+    if (error) return error;
+
+    const nombre = String(datos.nombre || "").trim();
+    const pin = String(datos.pin || "");
+    const u = NOMBRE_VALIDO.test(nombre)
+      ? this.sql.exec("SELECT nombre, pin_hash, pin_sal, fallos, bloqueo FROM usuarios WHERE nombre = ?", nombre).toArray()[0]
+      : null;
+    if (u && u.bloqueo > ahora) return json({ error: "cuenta_bloqueada", espera: Math.ceil((u.bloqueo - ahora) / 1000) }, 429);
+
+    const bien = u && PIN_VALIDO.test(pin) && iguales(await hashPin(pin, u.pin_sal), u.pin_hash);
+    if (!bien) {
+      const quedanIp = this.fallar(ip, ahora);
+      let quedan = quedanIp;
+      if (u) {
+        const fallos = u.fallos + 1;
+        if (fallos >= PIN_FALLOS_MAX) {
+          this.sql.exec("UPDATE usuarios SET fallos = 0, bloqueo = ? WHERE nombre = ?", ahora + PIN_BLOQUEO, u.nombre);
+          return json({ error: "cuenta_bloqueada", espera: Math.ceil(PIN_BLOQUEO / 1000) }, 429);
+        }
+        this.sql.exec("UPDATE usuarios SET fallos = ? WHERE nombre = ?", fallos, u.nombre);
+        quedan = Math.min(quedanIp, PIN_FALLOS_MAX - fallos);
+      }
+      if (quedanIp <= 0) return json({ error: "bloqueado", espera: Math.ceil(INTENTOS_VENTANA / 1000) }, 429);
+      return json({ error: "credenciales", quedan }, 401);
+    }
+
+    this.sql.exec("UPDATE usuarios SET fallos = 0, bloqueo = 0, visto = ? WHERE nombre = ?", ahora, u.nombre);
+    this.sql.exec("DELETE FROM intentos WHERE ip = ?", ip);
+    const token = await this.nuevaSesion(u.nombre, ahora);
+    return json({ token, nombre: u.nombre });
   }
 
   // ---------- WebSocket ----------
@@ -178,15 +286,31 @@ export class SalaSocial extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) {
       if (ws === sin) continue;
       const a = ws.deserializeAttachment();
-      if (a && a.nombre) enLinea.add(a.nombre);
+      if (a && a.nombre) enLinea.add(a.nombre.toLowerCase());
     }
     const usuarios = this.sql.exec("SELECT nombre, leido FROM usuarios ORDER BY nombre").toArray()
-      .map((u) => ({ n: u.nombre, leido: u.leido, enLinea: enLinea.has(u.nombre) }));
+      .map((u) => ({ n: u.nombre, leido: u.leido, enLinea: enLinea.has(u.nombre.toLowerCase()) }));
     return { t: "estado", usuarios };
   }
 
+  perfiles() {
+    return this.sql.exec("SELECT nombre, avatar, estado FROM usuarios ORDER BY nombre").toArray()
+      .map((u) => ({ n: u.nombre, avatar: u.avatar, estado: u.estado }));
+  }
+
+  // Cierra todas las conexiones de un usuario (por ejemplo, al borrar su cuenta).
+  cerrarDe(nombre, codigo, motivo) {
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (!a || !a.nombre || a.nombre.toLowerCase() !== nombre.toLowerCase()) continue;
+      this.enviar(ws, { t: "sesion_invalida", motivo });
+      ws.serializeAttachment({ nombre: null });
+      try { ws.close(codigo, motivo); } catch (e) { /* ya cerrada */ }
+    }
+  }
+
   async webSocketMessage(ws, crudo) {
-    if (typeof crudo !== "string" || crudo.length > 4000) return;
+    if (typeof crudo !== "string" || crudo.length > MAX_WS) return;
     let m;
     try { m = JSON.parse(crudo); } catch (e) { return; }
     if (!m || typeof m !== "object") return;
@@ -194,20 +318,23 @@ export class SalaSocial extends DurableObject {
 
     if (!yo.nombre) {
       if (m.t !== "auth") return;
-      const fila = this.sql.exec("SELECT nombre, clave_hash FROM usuarios WHERE token = ?", String(m.token || "")).toArray()[0];
-      const claveActual = this.env.CLAVE ? await sha256(this.env.CLAVE) : "";
-      if (!fila || fila.clave_hash !== claveActual) {
-        // Token desconocido, vencido o la clave cambió: hay que volver a entrar.
-        if (fila) this.sql.exec("DELETE FROM usuarios WHERE nombre = ?", fila.nombre);
+      const hash = await sha256(String(m.token || ""));
+      const fila = this.sql.exec(`SELECT u.nombre AS nombre FROM sesiones s
+        JOIN usuarios u ON u.nombre = s.nombre WHERE s.token_hash = ?`, hash).toArray()[0];
+      if (!fila) {
+        // Token desconocido o vencido: hay que volver a entrar.
+        this.sql.exec("DELETE FROM sesiones WHERE token_hash = ?", hash);
         this.enviar(ws, { t: "sesion_invalida" });
         ws.close(4001, "sesion");
         return;
       }
       this.limpiar();
-      this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", Date.now(), fila.nombre);
-      ws.serializeAttachment({ nombre: fila.nombre });
+      const ahora = Date.now();
+      this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", ahora, fila.nombre);
+      this.sql.exec("UPDATE sesiones SET visto = ? WHERE token_hash = ?", ahora, hash);
+      ws.serializeAttachment({ nombre: fila.nombre, ses: hash });
       const mensajes = this.sql.exec("SELECT id, nombre, texto, ts FROM mensajes ORDER BY id").toArray();
-      this.enviar(ws, { t: "hola", yo: fila.nombre, mensajes, horas: this.horas() });
+      this.enviar(ws, { t: "hola", yo: fila.nombre, mensajes, perfiles: this.perfiles(), horas: this.horas() });
       this.enviarATodos(this.estado());
       await this.programarLimpieza();
       return;
@@ -217,8 +344,7 @@ export class SalaSocial extends DurableObject {
       const ahora = Date.now();
       const antes = this.ultimoEnvio.get(yo.nombre) || 0;
       if (ahora - antes < ESPERA_ENTRE_MENSAJES) { this.enviar(ws, { t: "error", e: "rapido", cid: m.cid }); return; }
-      // Quita caracteres de control (deja saltos de línea) y espacios sobrantes.
-      let texto = String(m.texto || "").replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, "").replace(/\n{3,}/g, "\n\n").trim();
+      const texto = limpiarTexto(m.texto, true);
       if (!texto) return;
       if ([...texto].length > MAX_LARGO) { this.enviar(ws, { t: "error", e: "largo", cid: m.cid }); return; }
       this.ultimoEnvio.set(yo.nombre, ahora);
@@ -228,6 +354,27 @@ export class SalaSocial extends DurableObject {
       this.enviarATodos({ t: "msg", m: { id, nombre: yo.nombre, texto, ts: ahora }, cid: m.cid, de: yo.nombre });
       this.enviarATodos({ t: "leido", n: yo.nombre, id });
       await this.programarLimpieza();
+      return;
+    }
+
+    if (m.t === "perfil") {
+      const ahora = Date.now();
+      if (ahora - (this.ultimoPerfil.get(yo.nombre) || 0) < ESPERA_ENTRE_PERFILES) { this.enviar(ws, { t: "error", e: "rapido" }); return; }
+      const cambios = [], valores = [];
+      if (m.estado !== undefined) {
+        const estado = limpiarTexto(m.estado, false);
+        if ([...estado].length > MAX_ESTADO) { this.enviar(ws, { t: "error", e: "estado_largo" }); return; }
+        cambios.push("estado = ?"); valores.push(estado);
+      }
+      if (m.avatar !== undefined) {
+        if (!avatarValido(m.avatar)) { this.enviar(ws, { t: "error", e: "avatar" }); return; }
+        cambios.push("avatar = ?"); valores.push(m.avatar);
+      }
+      if (!cambios.length) return;
+      this.ultimoPerfil.set(yo.nombre, ahora);
+      this.sql.exec(`UPDATE usuarios SET ${cambios.join(", ")}, visto = ? WHERE nombre = ?`, ...valores, ahora, yo.nombre);
+      const p = this.sql.exec("SELECT nombre, avatar, estado FROM usuarios WHERE nombre = ?", yo.nombre).toArray()[0];
+      if (p) this.enviarATodos({ t: "perfil", p: { n: p.nombre, avatar: p.avatar, estado: p.estado } });
       return;
     }
 
@@ -247,11 +394,21 @@ export class SalaSocial extends DurableObject {
     }
 
     if (m.t === "salir") {
-      // Borra el nombre: queda libre para otra persona.
-      this.sql.exec("DELETE FROM usuarios WHERE nombre = ?", yo.nombre);
+      // Cierra la sesión de este teléfono. La cuenta sigue: se vuelve a entrar con nombre y PIN.
+      this.sql.exec("DELETE FROM sesiones WHERE token_hash = ?", yo.ses || "");
       ws.serializeAttachment({ nombre: null });
       ws.close(1000, "salir");
       this.enviarATodos(this.estado(ws));
+      return;
+    }
+
+    if (m.t === "borrar_cuenta") {
+      // Borra la cuenta y todas sus sesiones. El nombre queda libre.
+      this.sql.exec("DELETE FROM sesiones WHERE nombre = ?", yo.nombre);
+      this.sql.exec("DELETE FROM usuarios WHERE nombre = ?", yo.nombre);
+      this.cerrarDe(yo.nombre, 4001, "cuenta_borrada");
+      this.enviarATodos({ t: "perfil_borrado", n: yo.nombre });
+      this.enviarATodos(this.estado());
     }
   }
 
