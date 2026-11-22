@@ -31,6 +31,12 @@ ORIGENES = "https://shukitostudio.github.io,http://localhost:8080,http://127.0.0
 binding = "ARCHIVOS"
 bucket_name = "shukito-social-archivos"
 
+# Botón Traducir (español <-> inglés) con Workers AI de Cloudflare.
+# Tiene un uso gratis por día; con mucho uso se paga. Cada persona puede pedir 40 traducciones nuevas cada 10 minutos
+# y cada traducción se guarda para no pedirla dos veces.
+[ai]
+binding = "AI"
+
 [[durable_objects.bindings]]
 name = "SALA"
 class_name = "SalaSocial"

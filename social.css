@@ -292,6 +292,21 @@ p.social-admin-bloque { display: block; margin-bottom: 6px; }
 .social-boton.chico { flex: none; padding: 7px 12px; font-size: 14px; border-radius: 10px; }
 .social-boton.peligro { background: #c62f26; color: #fff; }
 
+/* Traducir */
+.social-traducir {
+  margin-right: auto; padding: 2px 6px; border: 0; border-radius: 6px; background: none; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: bold; color: var(--so-autor); text-decoration: underline; text-underline-offset: 2px;
+}
+.mia .social-traducir { color: inherit; }
+.social-traducir:hover:not(:disabled), .social-traducir:focus-visible { background: rgba(127, 140, 160, .2); }
+.social-traducir:disabled { cursor: default; text-decoration: none; opacity: .8; font-style: italic; }
+.social-pie { gap: 6px; align-self: stretch; justify-content: flex-end; }
+.social-traduccion {
+  display: flex; flex-direction: column; margin-top: 4px; padding: 4px 0 0 8px;
+  border-left: 3px solid var(--so-acento); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.social-traduccion-etiqueta { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: .4px; opacity: .75; }
+
 /* Papelera del administrador en los mensajes */
 .social-papelera {
   display: grid; place-items: center; width: 24px; height: 24px; margin-right: 2px; padding: 0;

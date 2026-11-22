@@ -37,6 +37,11 @@ const SIN_USAR_HORAS = 1;                  // un archivo subido que no se envió
 const CLAVE_ARCHIVO = /^[a-f0-9]{40}$/;
 const MAX_SUBIDA = 8 * 1024 * 1024;        // el más grande de todos (video)
 
+// ---------- Traducir (Workers AI, binding AI) ----------
+const MODELO_TRADUCIR = "@cf/meta/m2m100-1.2b";
+const TRADUCCIONES_MAX = 40;               // traducciones nuevas por persona...
+const TRADUCCIONES_VENTANA = 10 * 60 * 1000; // ...cada 10 minutos (las ya guardadas no cuentan)
+
 function origenPermitido(request, env) {
   const origen = request.headers.get("Origin") || "";
   const lista = String(env.ORIGENES || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -177,6 +182,7 @@ export class SalaSocial extends DurableObject {
     this.sql = ctx.storage.sql;
     this.ultimoEnvio = new Map();
     this.ultimoPerfil = new Map();
+    this.traduccionesRecientes = new Map(); // nombre -> horas de sus últimas traducciones
     this.sql.exec(`CREATE TABLE IF NOT EXISTS mensajes (
       id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, texto TEXT NOT NULL, ts INTEGER NOT NULL,
       sala TEXT NOT NULL DEFAULT 'general')`);
@@ -225,6 +231,9 @@ export class SalaSocial extends DurableObject {
     // "Borrar chat" (solo para mí): esa persona deja de ver los mensajes de ese chat hasta el id "hasta".
     this.sql.exec(`CREATE TABLE IF NOT EXISTS ocultos (
       nombre TEXT NOT NULL COLLATE NOCASE, sala TEXT NOT NULL, hasta INTEGER NOT NULL, PRIMARY KEY (nombre, sala))`);
+    // Traducciones ya hechas: se reutilizan y se borran junto con su mensaje.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS traducciones (
+      id INTEGER NOT NULL, idioma TEXT NOT NULL, texto TEXT NOT NULL, PRIMARY KEY (id, idioma))`);
     // Responde "pong" a los "ping" del teléfono sin despertar al servidor.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -263,6 +272,14 @@ export class SalaSocial extends DurableObject {
       this.sql.exec("DELETE FROM silencios WHERE tipo = 'sala' AND valor = ?", sala);
     }
     this.sql.exec("DELETE FROM intentos WHERE ts < ?", ahora - INTENTOS_VENTANA);
+    this.sql.exec("DELETE FROM traducciones WHERE id NOT IN (SELECT id FROM mensajes)");
+  }
+
+  // Traduce con Workers AI. TRADUCTOR_PRUEBA="1" (solo al probar en la computadora) no llama a nadie.
+  async traducirTexto(texto, de, a) {
+    if (this.env.TRADUCTOR_PRUEBA === "1") return "[" + a + "] " + texto;
+    const r = await this.env.AI.run(MODELO_TRADUCIR, { text: texto, source_lang: de, target_lang: a });
+    return String((r && r.translated_text) || "").trim().slice(0, 2000);
   }
 
   // Un chat al que "yo" puede escribir: el general, o uno privado con otra persona que existe.
@@ -693,6 +710,50 @@ export class SalaSocial extends DurableObject {
       if (m.activo) this.sql.exec("INSERT OR IGNORE INTO silencios (nombre, tipo, valor) VALUES (?, ?, ?)", yo.nombre, tipo, valor);
       else this.sql.exec("DELETE FROM silencios WHERE nombre = ? AND tipo = ? AND valor = ?", yo.nombre, tipo, valor);
       this.enviarAUsuario(yo.nombre, { t: "silencios", lista: this.silenciosDe(yo.nombre) });
+      return;
+    }
+
+    if (m.t === "traducir") {
+      // Traduce un mensaje que esta persona puede ver al idioma pedido (español o inglés).
+      const id = Math.floor(Number(m.id) || 0);
+      let a = m.a === "en" ? "en" : "es";
+      const msg = this.sql.exec("SELECT id, sala, texto FROM mensajes WHERE id = ?", id).toArray()[0];
+      const oculto = msg && this.sql.exec("SELECT hasta FROM ocultos WHERE nombre = ? AND sala = ?", yo.nombre, msg.sala).toArray()[0];
+      if (!msg || !msg.texto || !esMiembro(msg.sala, yo.nombre) || (oculto && msg.id <= oculto.hasta)) {
+        this.enviar(ws, { t: "error", e: "traducir", id });
+        return;
+      }
+      const guardada = (idioma) => this.sql.exec("SELECT texto FROM traducciones WHERE id = ? AND idioma = ?", id, idioma).toArray()[0];
+      let lista = guardada(a);
+      if (lista) { this.enviar(ws, { t: "traduccion", id, a, texto: lista.texto }); return; }
+      if (!this.env.AI && this.env.TRADUCTOR_PRUEBA !== "1") { this.enviar(ws, { t: "error", e: "sin_traductor", id }); return; }
+      const ahora = Date.now();
+      const recientes = (this.traduccionesRecientes.get(yo.nombre) || []).filter((x) => x > ahora - TRADUCCIONES_VENTANA);
+      if (recientes.length >= TRADUCCIONES_MAX) { this.enviar(ws, { t: "error", e: "traducir_limite", id }); return; }
+      recientes.push(ahora);
+      this.traduccionesRecientes.set(yo.nombre, recientes);
+      const soloLetras = (x) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+      const igual = (x, y) => soloLetras(x) === soloLetras(y);
+      let texto;
+      try {
+        texto = await this.traducirTexto(msg.texto, a === "es" ? "en" : "es", a);
+        // Si el mensaje ya estaba en ese idioma, se traduce al otro.
+        if (!texto || igual(texto, msg.texto)) {
+          const otro = a === "es" ? "en" : "es";
+          lista = guardada(otro);
+          texto = lista ? lista.texto : await this.traducirTexto(msg.texto, a, otro);
+          a = otro;
+        }
+      } catch (e) {
+        this.enviar(ws, { t: "error", e: "traducir", id });
+        return;
+      }
+      if (!texto) { this.enviar(ws, { t: "error", e: "traducir", id }); return; }
+      // El mensaje pudo borrarse mientras se traducía.
+      if (this.sql.exec("SELECT id FROM mensajes WHERE id = ?", id).toArray().length) {
+        this.sql.exec("INSERT OR REPLACE INTO traducciones (id, idioma, texto) VALUES (?, ?, ?)", id, a, texto);
+      }
+      this.enviar(ws, { t: "traduccion", id, a, texto });
       return;
     }
 

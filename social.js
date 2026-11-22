@@ -94,6 +94,9 @@
   var avatarElegido = 'e:0';  // en el registro
   var avatarNuevo = null;     // en la ventana de cambiar avatar
   var esAdmin = false;        // esta sesión entró con la clave de administrador
+  var traducciones = {};      // id del mensaje -> {a: 'es' | 'en', texto}
+  var verTraduccion = {};     // id -> true si se está mostrando la traducción
+  var traduciendo = {};       // id -> true mientras se espera la traducción
   var datosAdmin = null;      // {chats: [{sala, miembros, cuantos, ultimo}], clavePropia}
   var silencios = { sala: {}, persona: {} }; // lo que silencié (se guarda en el servidor)
   var CLAVE_AVISOS = 'shukito-social-avisos';
@@ -317,6 +320,7 @@
     cancelarGrabacion();
     cerrarVisor();
     soltarArchivos();
+    traducciones = {}; verTraduccion = {}; traduciendo = {};
     cancelarEstado();
     cerrarPanel(false);
     chats = {}; lecturas = {}; usuarios = []; pendientes = {}; perfiles = {};
@@ -1306,6 +1310,48 @@
   $('social-grabando-cancelar').addEventListener('click', cancelarGrabacion);
   $('social-grabando-enviar').addEventListener('click', enviarGrabacion);
 
+  /* ---------- Traducir ---------- */
+  function alternarTraduccion(id) {
+    if (verTraduccion[id]) delete verTraduccion[id];
+    else if (traducciones[id]) verTraduccion[id] = true;
+    else if (!traduciendo[id]) {
+      if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+      traduciendo[id] = true;
+      // Al idioma de la página; si el mensaje ya está en ese idioma, el servidor lo traduce al otro.
+      ws.send(JSON.stringify({ t: 'traducir', id: id, a: idioma() === 'en' ? 'en' : 'es' }));
+    }
+    var fila = lista.querySelector('.social-fila[data-id="' + Number(id) + '"]');
+    if (fila) pintarTraduccion(fila, id);
+  }
+
+  function pintarTraduccion(fila, id) {
+    var boton = fila.querySelector('.social-traducir');
+    var bloque = fila.querySelector('.social-traduccion');
+    var tr = traducciones[id];
+    if (verTraduccion[id] && tr) {
+      if (!bloque) {
+        bloque = document.createElement('span');
+        bloque.className = 'social-traduccion';
+        var etiqueta = document.createElement('span');
+        etiqueta.className = 'social-traduccion-etiqueta';
+        var texto = document.createElement('span');
+        texto.className = 'social-traduccion-texto';
+        bloque.appendChild(etiqueta);
+        bloque.appendChild(texto);
+        var burbuja = fila.querySelector('.social-burbuja');
+        burbuja.insertBefore(bloque, burbuja.querySelector('.social-pie'));
+      }
+      bloque.setAttribute('lang', tr.a);
+      bloque.querySelector('.social-traduccion-etiqueta').textContent = t(tr.a === 'en' ? 'socialTraducidoEn' : 'socialTraducidoEs');
+      bloque.querySelector('.social-traduccion-texto').textContent = tr.texto;
+    } else if (bloque) {
+      bloque.remove();
+    }
+    if (!boton) return;
+    boton.textContent = t(verTraduccion[id] && tr ? 'socialVerOriginal' : traduciendo[id] ? 'socialTraduciendo' : 'socialTraducir');
+    boton.disabled = !!traduciendo[id];
+  }
+
   /* ---------- Conexión ---------- */
   function conectar() {
     if (!sesion || (ws && ws.readyState <= 1)) return;
@@ -1415,6 +1461,12 @@
       pintarCabeceraSala();
       pintarMenuChat();
       refrescarListas();
+    } else if (m.t === 'traduccion') {
+      traducciones[m.id] = { a: m.a, texto: m.texto };
+      delete traduciendo[m.id];
+      verTraduccion[m.id] = true;
+      var filaT = lista.querySelector('.social-fila[data-id="' + Number(m.id) + '"]');
+      if (filaT) pintarTraduccion(filaT, m.id);
     } else if (m.t === 'chat_oculto') {
       // "Borrar chat" (solo para mí), hecho aquí o en otro teléfono de la misma cuenta.
       var co = chats[m.sala];
@@ -1497,7 +1549,14 @@
       if (p) { delete pendientes[m.cid]; p.fila.remove(); }
       mostrarAviso(m.e === 'rapido' ? t('socialErrRapido') : m.e === 'largo' ? t('socialErrLargo')
         : m.e === 'estado_largo' ? t('socialErrEstado') : m.e === 'avatar' ? t('socialErrFoto')
-        : m.e === 'sala' ? t('socialErrSala') : m.e === 'archivo' ? t('socialErrArchivo') : '');
+        : m.e === 'sala' ? t('socialErrSala') : m.e === 'archivo' ? t('socialErrArchivo')
+        : m.e === 'traducir' ? t('socialErrTraducir') : m.e === 'traducir_limite' ? t('socialErrTraducirLimite')
+        : m.e === 'sin_traductor' ? t('socialErrSinTraductor') : '');
+      if (m.id && traduciendo[m.id]) {
+        delete traduciendo[m.id];
+        var filaE = lista.querySelector('.social-fila[data-id="' + Number(m.id) + '"]');
+        if (filaE) pintarTraduccion(filaE, m.id);
+      }
       // Errores del administrador
       var minutosA = Math.max(1, Math.ceil((m.espera || 600) / 60));
       if (m.e === 'admin_clave') $('social-admin-error').textContent = t('socialAdminErrClave', { n: m.quedan });
@@ -1606,6 +1665,15 @@
       papelera.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       papelera.addEventListener('click', function () { borrarMensaje(m.id); });
       fila.querySelector('.social-pie').insertBefore(papelera, fila.querySelector('.social-pie').firstChild);
+    }
+    if (m.texto) {
+      // Traducir (español <-> inglés)
+      var traducir = document.createElement('button');
+      traducir.type = 'button';
+      traducir.className = 'social-traducir';
+      traducir.addEventListener('click', function () { alternarTraduccion(m.id); });
+      fila.querySelector('.social-pie').insertBefore(traducir, fila.querySelector('.social-pie').firstChild);
+      pintarTraduccion(fila, m.id);
     }
     var primerPendiente = lista.querySelector('.social-fila.pendiente');
     lista.insertBefore(fila, primerPendiente);
