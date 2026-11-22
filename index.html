@@ -246,16 +246,49 @@
 
       <!-- Chat -->
       <div id="social-chat" class="social-chat" hidden>
-        <ul id="social-usuarios" class="social-usuarios" data-i-label="socialEnLinea"></ul>
-        <div id="social-mensajes" class="social-mensajes" aria-live="polite"></div>
-        <div id="social-escribiendo" class="social-escribiendo" aria-live="polite"></div>
-        <form id="social-form" class="social-form" autocomplete="off">
-          <textarea id="social-texto" rows="1" maxlength="500" data-i-ph="socialEscribe" data-i-label="socialEscribe"></textarea>
-          <button type="submit" id="social-enviar" class="social-enviar" data-i-label="socialEnviar" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l18-8L3 4v6l12 2-12 2z" fill="currentColor"/></svg>
+        <!-- Botones de chats y contactos, y el chat abierto -->
+        <div class="social-barra-chats">
+          <button type="button" id="social-boton-chats" class="social-pildora" aria-expanded="false" aria-controls="social-panel-chats">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+            <span data-i="socialChats"></span>
+            <span id="social-asterisco-chats" class="social-asterisco" aria-hidden="true" hidden>*</span>
           </button>
-        </form>
-        <span id="social-contador" class="social-contador" aria-hidden="true"></span>
+          <div class="social-sala-actual">
+            <span id="social-sala-avatar" class="social-avatar chico" aria-hidden="true"></span>
+            <span class="social-sala-textos">
+              <strong id="social-sala-nombre"></strong>
+              <span id="social-sala-detalle" class="social-sala-detalle"></span>
+            </span>
+          </div>
+          <button type="button" id="social-boton-contactos" class="social-pildora" aria-expanded="false" aria-controls="social-panel-contactos">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 19c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.8a3.4 3.4 0 010 6.4M18 13.8c2 .7 3.2 2.5 3.6 5.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span data-i="socialContactos"></span>
+          </button>
+        </div>
+
+        <div class="social-vista">
+          <div id="social-mensajes" class="social-mensajes" aria-live="polite"></div>
+          <div id="social-escribiendo" class="social-escribiendo" aria-live="polite"></div>
+          <form id="social-form" class="social-form" autocomplete="off">
+            <textarea id="social-texto" rows="1" maxlength="500" data-i-ph="socialEscribe" data-i-label="socialEscribe"></textarea>
+            <button type="submit" id="social-enviar" class="social-enviar" data-i-label="socialEnviar" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l18-8L3 4v6l12 2-12 2z" fill="currentColor"/></svg>
+            </button>
+          </form>
+          <span id="social-contador" class="social-contador" aria-hidden="true"></span>
+
+          <!-- Lista de chats: el general y los privados -->
+          <section id="social-panel-chats" class="social-panel" aria-labelledby="social-panel-chats-titulo" hidden>
+            <h3 id="social-panel-chats-titulo" class="social-panel-titulo" data-i="socialChats"></h3>
+            <ul id="social-lista-chats" class="social-lista"></ul>
+          </section>
+
+          <!-- Contactos: todos los que crearon usuario -->
+          <section id="social-panel-contactos" class="social-panel" aria-labelledby="social-panel-contactos-titulo" hidden>
+            <h3 id="social-panel-contactos-titulo" class="social-panel-titulo" data-i="socialContactos"></h3>
+            <ul id="social-lista-contactos" class="social-lista"></ul>
+          </section>
+        </div>
       </div>
     </div>
   </div>
@@ -277,6 +310,7 @@
 
   <script src="textos.js"></script>
   <script src="script.js"></script>
+  <script src="social-avatares.js"></script>
   <script src="social.js"></script>
 </body>
 </html>

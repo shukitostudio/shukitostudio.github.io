@@ -1,4 +1,4 @@
-// Chat Social de Shukito Studio: un chat de grupo para unos pocos invitados.
+// Chat Social de Shukito Studio: chat general y chats privados para unos pocos invitados.
 // Worker + un Durable Object ("SalaSocial") con WebSocket. La clave del grupo vive en el secreto CLAVE.
 import { DurableObject } from "cloudflare:workers";
 
@@ -100,6 +100,20 @@ function avatarValido(a) {
   return typeof a === "string" && (AVATAR_PREDEF.test(a) || (a.length <= MAX_AVATAR && AVATAR_FOTO.test(a)));
 }
 
+// ---------- Salas ----------
+// "general" es el chat de todos. Un chat privado se llama "p:ana:beto" (los dos nombres en minúsculas, en orden).
+const SALA_PRIVADA = /^p:([a-z0-9]{3,16}):([a-z0-9]{3,16})$/;
+function salaPrivada(a, b) { return "p:" + [a.toLowerCase(), b.toLowerCase()].sort().join(":"); }
+function miembros(sala) {
+  const m = SALA_PRIVADA.exec(sala);
+  return m ? [m[1], m[2]] : null;
+}
+function esMiembro(sala, nombre) {
+  if (sala === "general") return true;
+  const m = miembros(sala);
+  return !!m && m.includes(String(nombre).toLowerCase());
+}
+
 // Quita caracteres de control y espacios sobrantes. "lineas" deja saltos de línea.
 function limpiarTexto(s, lineas) {
   s = String(s || "");
@@ -115,14 +129,22 @@ export class SalaSocial extends DurableObject {
     this.ultimoEnvio = new Map();
     this.ultimoPerfil = new Map();
     this.sql.exec(`CREATE TABLE IF NOT EXISTS mensajes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, texto TEXT NOT NULL, ts INTEGER NOT NULL)`);
+      id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, texto TEXT NOT NULL, ts INTEGER NOT NULL,
+      sala TEXT NOT NULL DEFAULT 'general')`);
+    // Mensajes de antes de los chats privados: todos eran del chat general.
+    const tablaMensajes = this.sql.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mensajes'").one();
+    if (!String(tablaMensajes.sql).includes("sala")) this.sql.exec("ALTER TABLE mensajes ADD COLUMN sala TEXT NOT NULL DEFAULT 'general'");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS mensajes_sala ON mensajes (sala, id)");
+    // Hasta qué mensaje leyó cada persona en cada chat.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS lecturas (
+      nombre TEXT NOT NULL COLLATE NOCASE, sala TEXT NOT NULL, id INTEGER NOT NULL, PRIMARY KEY (nombre, sala))`);
     // Versión 1 de "usuarios" (sin PIN ni perfil): se reemplaza. Los invitados vuelven a crear su usuario una vez.
     const vieja = this.sql.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'usuarios'").toArray()[0];
     if (vieja && !String(vieja.sql).includes("pin_hash")) this.sql.exec("DROP TABLE usuarios");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS usuarios (
       nombre TEXT PRIMARY KEY COLLATE NOCASE, pin_hash TEXT NOT NULL, pin_sal TEXT NOT NULL,
       avatar TEXT NOT NULL, estado TEXT NOT NULL DEFAULT '', creado INTEGER NOT NULL, visto INTEGER NOT NULL,
-      leido INTEGER NOT NULL DEFAULT 0, fallos INTEGER NOT NULL DEFAULT 0, bloqueo INTEGER NOT NULL DEFAULT 0)`);
+      fallos INTEGER NOT NULL DEFAULT 0, bloqueo INTEGER NOT NULL DEFAULT 0)`);
     // Una sesión por teléfono o computadora. Solo se guarda el hash del token.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS sesiones (
       token_hash TEXT PRIMARY KEY, nombre TEXT NOT NULL COLLATE NOCASE, visto INTEGER NOT NULL)`);
@@ -139,11 +161,40 @@ export class SalaSocial extends DurableObject {
     const ahora = Date.now();
     const limite = ahora - this.diasSesion() * 86400 * 1000;
     this.sql.exec("DELETE FROM mensajes WHERE ts < ?", ahora - this.horas() * 3600 * 1000);
-    this.sql.exec("DELETE FROM mensajes WHERE id NOT IN (SELECT id FROM mensajes ORDER BY id DESC LIMIT ?)", this.maxMensajes());
+    // Como máximo "MAX_MENSAJES" por chat (los más nuevos).
+    this.sql.exec(`DELETE FROM mensajes WHERE id IN (SELECT id FROM (
+      SELECT id, ROW_NUMBER() OVER (PARTITION BY sala ORDER BY id DESC) AS n FROM mensajes) WHERE n > ?)`, this.maxMensajes());
     this.sql.exec("DELETE FROM sesiones WHERE visto < ?", limite);
     this.sql.exec("DELETE FROM usuarios WHERE visto < ?", limite);
     this.sql.exec("DELETE FROM sesiones WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
+    this.sql.exec("DELETE FROM lecturas WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
+    // Chats privados de alguien que ya no existe: se borran (así nadie que use ese nombre después los ve).
+    const existen = new Set(this.sql.exec("SELECT nombre FROM usuarios").toArray().map((u) => u.nombre.toLowerCase()));
+    const salas = this.sql.exec("SELECT DISTINCT sala FROM mensajes WHERE sala <> 'general'").toArray().map((f) => f.sala)
+      .concat(this.sql.exec("SELECT DISTINCT sala FROM lecturas WHERE sala <> 'general'").toArray().map((f) => f.sala));
+    for (const sala of new Set(salas)) {
+      const m = miembros(sala);
+      if (m && m.every((n) => existen.has(n))) continue;
+      this.sql.exec("DELETE FROM mensajes WHERE sala = ?", sala);
+      this.sql.exec("DELETE FROM lecturas WHERE sala = ?", sala);
+    }
     this.sql.exec("DELETE FROM intentos WHERE ts < ?", ahora - INTENTOS_VENTANA);
+  }
+
+  // Un chat al que "yo" puede escribir: el general, o uno privado con otra persona que existe.
+  salaPermitida(sala, yo) {
+    if (sala === "general") return true;
+    if (typeof sala !== "string" || !esMiembro(sala, yo)) return false;
+    const [a, b] = miembros(sala);
+    if (a === b) return false;
+    const otro = a === yo.toLowerCase() ? b : a;
+    return this.sql.exec("SELECT nombre FROM usuarios WHERE nombre = ?", otro).toArray().length > 0;
+  }
+
+  marcarLeido(nombre, sala, id) {
+    this.sql.exec(`INSERT INTO lecturas (nombre, sala, id) VALUES (?, ?, ?)
+      ON CONFLICT (nombre, sala) DO UPDATE SET id = MAX(id, excluded.id)`, nombre, sala, id);
+    return this.sql.exec("SELECT id FROM lecturas WHERE nombre = ? AND sala = ?", nombre, sala).one().id;
   }
 
   async programarLimpieza() {
@@ -152,9 +203,9 @@ export class SalaSocial extends DurableObject {
 
   async alarm() {
     this.limpiar();
-    const fila = this.sql.exec("SELECT MIN(id) AS m, COUNT(*) AS c FROM mensajes").one();
-    // "desde": el mensaje más viejo que queda (null = ya no queda ninguno).
-    this.enviarATodos({ t: "purga", desde: fila.c ? fila.m : null });
+    const fila = this.sql.exec("SELECT COUNT(*) AS c FROM mensajes").one();
+    // Cada teléfono borra los mensajes más viejos que "corte" y deja como máximo "max" por chat.
+    this.enviarATodos({ t: "purga", corte: Date.now() - this.horas() * 3600 * 1000, max: this.maxMensajes() });
     if (fila.c > 0 || this.ctx.getWebSockets().length > 0) await this.ctx.storage.setAlarm(Date.now() + LIMPIEZA_CADA);
   }
 
@@ -224,8 +275,8 @@ export class SalaSocial extends DurableObject {
     if (this.sql.exec("SELECT nombre FROM usuarios WHERE nombre = ?", nombre).toArray().length) return json({ error: "en_uso" }, 409);
 
     const sal = aleatorio(16);
-    this.sql.exec(`INSERT INTO usuarios (nombre, pin_hash, pin_sal, avatar, estado, creado, visto, leido)
-      VALUES (?, ?, ?, ?, '', ?, ?, 0)`, nombre, await hashPin(pin, sal), sal, avatar, ahora, ahora);
+    this.sql.exec(`INSERT INTO usuarios (nombre, pin_hash, pin_sal, avatar, estado, creado, visto)
+      VALUES (?, ?, ?, ?, '', ?, ?)`, nombre, await hashPin(pin, sal), sal, avatar, ahora, ahora);
     this.sql.exec("DELETE FROM intentos WHERE ip = ?", ip);
     const token = await this.nuevaSesion(nombre, ahora);
     this.enviarATodos({ t: "perfil", p: { n: nombre, avatar, estado: "" } });
@@ -281,6 +332,17 @@ export class SalaSocial extends DurableObject {
     }
   }
 
+  // Envía solo a quienes están en ese chat (en el general, a todos).
+  enviarASala(sala, datos, excepto) {
+    const texto = JSON.stringify(datos);
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === excepto) continue;
+      const a = ws.deserializeAttachment();
+      if (!a || !a.nombre || !esMiembro(sala, a.nombre)) continue;
+      try { ws.send(texto); } catch (e) { /* conexión cerrada */ }
+    }
+  }
+
   estado(sin) {
     const enLinea = new Set();
     for (const ws of this.ctx.getWebSockets()) {
@@ -288,8 +350,8 @@ export class SalaSocial extends DurableObject {
       const a = ws.deserializeAttachment();
       if (a && a.nombre) enLinea.add(a.nombre.toLowerCase());
     }
-    const usuarios = this.sql.exec("SELECT nombre, leido FROM usuarios ORDER BY nombre").toArray()
-      .map((u) => ({ n: u.nombre, leido: u.leido, enLinea: enLinea.has(u.nombre.toLowerCase()) }));
+    const usuarios = this.sql.exec("SELECT nombre FROM usuarios ORDER BY nombre").toArray()
+      .map((u) => ({ n: u.nombre, enLinea: enLinea.has(u.nombre.toLowerCase()) }));
     return { t: "estado", usuarios };
   }
 
@@ -333,8 +395,12 @@ export class SalaSocial extends DurableObject {
       this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", ahora, fila.nombre);
       this.sql.exec("UPDATE sesiones SET visto = ? WHERE token_hash = ?", ahora, hash);
       ws.serializeAttachment({ nombre: fila.nombre, ses: hash });
-      const mensajes = this.sql.exec("SELECT id, nombre, texto, ts FROM mensajes ORDER BY id").toArray();
-      this.enviar(ws, { t: "hola", yo: fila.nombre, mensajes, perfiles: this.perfiles(), horas: this.horas() });
+      // Solo los chats donde está esta persona: el general y sus privados.
+      const mensajes = this.sql.exec("SELECT id, sala, nombre, texto, ts FROM mensajes ORDER BY id").toArray()
+        .filter((x) => esMiembro(x.sala, fila.nombre));
+      const lecturas = this.sql.exec("SELECT nombre, sala, id FROM lecturas").toArray()
+        .filter((x) => esMiembro(x.sala, fila.nombre)).map((x) => ({ n: x.nombre, sala: x.sala, id: x.id }));
+      this.enviar(ws, { t: "hola", yo: fila.nombre, mensajes, lecturas, perfiles: this.perfiles(), horas: this.horas() });
       this.enviarATodos(this.estado());
       await this.programarLimpieza();
       return;
@@ -344,15 +410,19 @@ export class SalaSocial extends DurableObject {
       const ahora = Date.now();
       const antes = this.ultimoEnvio.get(yo.nombre) || 0;
       if (ahora - antes < ESPERA_ENTRE_MENSAJES) { this.enviar(ws, { t: "error", e: "rapido", cid: m.cid }); return; }
+      const sala = m.sala === undefined ? "general" : m.sala;
+      if (!this.salaPermitida(sala, yo.nombre)) { this.enviar(ws, { t: "error", e: "sala", cid: m.cid }); return; }
       const texto = limpiarTexto(m.texto, true);
       if (!texto) return;
       if ([...texto].length > MAX_LARGO) { this.enviar(ws, { t: "error", e: "largo", cid: m.cid }); return; }
       this.ultimoEnvio.set(yo.nombre, ahora);
-      const id = this.sql.exec("INSERT INTO mensajes (nombre, texto, ts) VALUES (?, ?, ?) RETURNING id", yo.nombre, texto, ahora).one().id;
-      this.sql.exec("UPDATE usuarios SET visto = ?, leido = MAX(leido, ?) WHERE nombre = ?", ahora, id, yo.nombre);
+      const id = this.sql.exec("INSERT INTO mensajes (sala, nombre, texto, ts) VALUES (?, ?, ?, ?) RETURNING id",
+        sala, yo.nombre, texto, ahora).one().id;
+      this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", ahora, yo.nombre);
+      this.marcarLeido(yo.nombre, sala, id);
       this.limpiar();
-      this.enviarATodos({ t: "msg", m: { id, nombre: yo.nombre, texto, ts: ahora }, cid: m.cid, de: yo.nombre });
-      this.enviarATodos({ t: "leido", n: yo.nombre, id });
+      this.enviarASala(sala, { t: "msg", m: { id, sala, nombre: yo.nombre, texto, ts: ahora }, cid: m.cid });
+      this.enviarASala(sala, { t: "leido", n: yo.nombre, sala, id });
       await this.programarLimpieza();
       return;
     }
@@ -379,17 +449,20 @@ export class SalaSocial extends DurableObject {
     }
 
     if (m.t === "escribiendo") {
-      this.enviarATodos({ t: "escribiendo", n: yo.nombre }, ws);
+      const sala = m.sala === undefined ? "general" : m.sala;
+      if (!this.salaPermitida(sala, yo.nombre)) return;
+      this.enviarASala(sala, { t: "escribiendo", n: yo.nombre, sala }, ws);
       return;
     }
 
     if (m.t === "leido") {
-      const maximo = this.sql.exec("SELECT COALESCE(MAX(id), 0) AS m FROM mensajes").one().m;
+      const sala = m.sala === undefined ? "general" : m.sala;
+      if (!this.salaPermitida(sala, yo.nombre)) return;
+      const maximo = this.sql.exec("SELECT COALESCE(MAX(id), 0) AS m FROM mensajes WHERE sala = ?", sala).one().m;
       const id = Math.min(Math.floor(Number(m.id) || 0), maximo); // no se puede "leer" un mensaje que aún no existe
       if (id <= 0) return;
-      this.sql.exec("UPDATE usuarios SET leido = MAX(leido, ?), visto = ? WHERE nombre = ?", id, Date.now(), yo.nombre);
-      const nuevo = this.sql.exec("SELECT leido FROM usuarios WHERE nombre = ?", yo.nombre).toArray()[0];
-      if (nuevo) this.enviarATodos({ t: "leido", n: yo.nombre, id: nuevo.leido });
+      this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", Date.now(), yo.nombre);
+      this.enviarASala(sala, { t: "leido", n: yo.nombre, sala, id: this.marcarLeido(yo.nombre, sala, id) });
       return;
     }
 
@@ -406,6 +479,7 @@ export class SalaSocial extends DurableObject {
       // Borra la cuenta y todas sus sesiones. El nombre queda libre.
       this.sql.exec("DELETE FROM sesiones WHERE nombre = ?", yo.nombre);
       this.sql.exec("DELETE FROM usuarios WHERE nombre = ?", yo.nombre);
+      this.limpiar(); // también borra sus chats privados y lo que leyó
       this.cerrarDe(yo.nombre, 4001, "cuenta_borrada");
       this.enviarATodos({ t: "perfil_borrado", n: yo.nombre });
       this.enviarATodos(this.estado());
