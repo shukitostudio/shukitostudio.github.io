@@ -24,6 +24,19 @@ const ADMIN_BLOQUEO = 60 * 60 * 1000;    // ...bloquea la entrada de administrad
 const MIN_CLAVE_GRUPO = 6;
 const MAX_CLAVE_GRUPO = 64;
 
+// ---------- Fotos, videos y audios (guardados en R2, binding ARCHIVOS) ----------
+// Llegan ya reducidos desde el teléfono. Aquí solo se revisa el tipo y el tamaño.
+const ARCHIVO_TIPOS = {
+  foto: { tipos: ["image/webp", "image/jpeg"], max: 2 * 1024 * 1024, dur: 0 },
+  audio: { tipos: ["audio/webm", "audio/ogg", "audio/mp4"], max: 2 * 1024 * 1024, dur: 60 },
+  video: { tipos: ["video/webm", "video/mp4"], max: 8 * 1024 * 1024, dur: 15 },
+};
+const SUBIDAS_MAX = 30;                    // archivos por persona...
+const SUBIDAS_VENTANA = 10 * 60 * 1000;    // ...cada 10 minutos
+const SIN_USAR_HORAS = 1;                  // un archivo subido que no se envió se borra a la hora
+const CLAVE_ARCHIVO = /^[a-f0-9]{40}$/;
+const MAX_SUBIDA = 8 * 1024 * 1024;        // el más grande de todos (video)
+
 function origenPermitido(request, env) {
   const origen = request.headers.get("Origin") || "";
   const lista = String(env.ORIGENES || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -33,10 +46,10 @@ function origenPermitido(request, env) {
 function cors(origen) {
   return {
     "Access-Control-Allow-Origin": origen,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Tipo, X-Duracion, X-Ancho, X-Alto",
     "Access-Control-Max-Age": "86400",
-    Vary: "Origin",
+    Vary: "Origin, Authorization",
   };
 }
 
@@ -70,6 +83,31 @@ export default {
     if (url.pathname === "/ws") {
       if (request.headers.get("Upgrade") !== "websocket") return new Response("Se espera WebSocket", { status: 426 });
       return sala.fetch(new Request("https://sala/ws", { headers: cabeceras }));
+    }
+
+    // Subir un archivo (cuerpo = el archivo) o bajarlo. Siempre con el token de la sesión en Authorization.
+    const esSubir = url.pathname === "/subir" && request.method === "POST";
+    const bajar = /^\/archivo\/([a-f0-9]{40})$/.exec(url.pathname);
+    if (esSubir || (bajar && request.method === "GET")) {
+      const conCors = (r) => {
+        const h = new Headers(r.headers);
+        for (const [k, v] of Object.entries(cors(origen))) h.set(k, v);
+        return new Response(r.body, { status: r.status, headers: h });
+      };
+      let cuerpo;
+      if (esSubir) {
+        // Se revisa el tamaño declarado y se lee entero aquí (como máximo 8 MB) antes de pasarlo.
+        const declarado = Number(request.headers.get("Content-Length") || 0);
+        if (!declarado) return conCors(json({ error: "vacio" }, 411));
+        if (declarado > MAX_SUBIDA) return conCors(json({ error: "grande" }, 413));
+        cuerpo = await request.arrayBuffer();
+        if (cuerpo.byteLength > MAX_SUBIDA) return conCors(json({ error: "grande" }, 413));
+        cabeceras.set("Content-Length", String(cuerpo.byteLength));
+      }
+      const r = await sala.fetch(new Request("https://sala" + url.pathname, {
+        method: request.method, headers: cabeceras, body: cuerpo,
+      }));
+      return conCors(r);
     }
 
     return new Response("No encontrado", { status: 404 });
@@ -118,6 +156,13 @@ function esMiembro(sala, nombre) {
   return !!m && m.includes(String(nombre).toLowerCase());
 }
 
+// Un mensaje como lo recibe el teléfono (los datos del archivo solo si lleva uno).
+function paraEnviar(x) {
+  const m = { id: x.id, sala: x.sala, nombre: x.nombre, texto: x.texto, ts: x.ts };
+  if (x.archivo) { m.archivo = x.archivo; m.tipo = x.tipo; m.dur = x.dur; m.ancho = x.ancho; m.alto = x.alto; }
+  return m;
+}
+
 // Quita caracteres de control y espacios sobrantes. "lineas" deja saltos de línea.
 function limpiarTexto(s, lineas) {
   s = String(s || "");
@@ -139,6 +184,20 @@ export class SalaSocial extends DurableObject {
     const tablaMensajes = this.sql.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mensajes'").one();
     if (!String(tablaMensajes.sql).includes("sala")) this.sql.exec("ALTER TABLE mensajes ADD COLUMN sala TEXT NOT NULL DEFAULT 'general'");
     this.sql.exec("CREATE INDEX IF NOT EXISTS mensajes_sala ON mensajes (sala, id)");
+    // Mensajes con foto, video o audio: la clave del archivo en R2 y sus datos.
+    const columnas = String(this.sql.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mensajes'").one().sql);
+    if (!columnas.includes("archivo")) {
+      this.sql.exec("ALTER TABLE mensajes ADD COLUMN archivo TEXT");
+      this.sql.exec("ALTER TABLE mensajes ADD COLUMN tipo TEXT");
+      this.sql.exec("ALTER TABLE mensajes ADD COLUMN dur INTEGER NOT NULL DEFAULT 0");
+      this.sql.exec("ALTER TABLE mensajes ADD COLUMN ancho INTEGER NOT NULL DEFAULT 0");
+      this.sql.exec("ALTER TABLE mensajes ADD COLUMN alto INTEGER NOT NULL DEFAULT 0");
+    }
+    // Archivos subidos. "mensaje" queda vacío hasta que se envía el mensaje que lo lleva.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS archivos (
+      clave TEXT PRIMARY KEY, nombre TEXT NOT NULL COLLATE NOCASE, tipo TEXT NOT NULL, mime TEXT NOT NULL,
+      tam INTEGER NOT NULL, dur INTEGER NOT NULL, ancho INTEGER NOT NULL, alto INTEGER NOT NULL,
+      ts INTEGER NOT NULL, mensaje INTEGER)`);
     // Hasta qué mensaje leyó cada persona en cada chat.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS lecturas (
       nombre TEXT NOT NULL COLLATE NOCASE, sala TEXT NOT NULL, id INTEGER NOT NULL, PRIMARY KEY (nombre, sala))`);
@@ -188,6 +247,7 @@ export class SalaSocial extends DurableObject {
     this.sql.exec("DELETE FROM ocultos WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
     this.sql.exec("DELETE FROM silencios WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
     this.sql.exec("DELETE FROM silencios WHERE tipo = 'persona' AND valor NOT IN (SELECT nombre FROM usuarios)");
+    this.sql.exec("UPDATE archivos SET ts = 0 WHERE mensaje IS NULL AND nombre NOT IN (SELECT nombre FROM usuarios)");
     // Chats privados de alguien que ya no existe: se borran (así nadie que use ese nombre después los ve).
     const existen = new Set(this.sql.exec("SELECT nombre FROM usuarios").toArray().map((u) => u.nombre.toLowerCase()));
     const salas = this.sql.exec("SELECT DISTINCT sala FROM mensajes WHERE sala <> 'general'").toArray().map((f) => f.sala)
@@ -227,10 +287,85 @@ export class SalaSocial extends DurableObject {
 
   async alarm() {
     this.limpiar();
+    await this.limpiarArchivos();
     const fila = this.sql.exec("SELECT COUNT(*) AS c FROM mensajes").one();
+    const archivos = this.sql.exec("SELECT COUNT(*) AS c FROM archivos").one();
     // Cada teléfono borra los mensajes más viejos que "corte" y deja como máximo "max" por chat.
     this.enviarATodos({ t: "purga", corte: Date.now() - this.horas() * 3600 * 1000, max: this.maxMensajes() });
-    if (fila.c > 0 || this.ctx.getWebSockets().length > 0) await this.ctx.storage.setAlarm(Date.now() + LIMPIEZA_CADA);
+    if (fila.c > 0 || archivos.c > 0 || this.ctx.getWebSockets().length > 0) await this.ctx.storage.setAlarm(Date.now() + LIMPIEZA_CADA);
+  }
+
+  // Borra de R2 los archivos cuyo mensaje ya no existe (se borró solo, lo borró el administrador...)
+  // y los que se subieron pero nunca se enviaron.
+  async limpiarArchivos() {
+    const limite = Date.now() - SIN_USAR_HORAS * 3600 * 1000;
+    const sobran = this.sql.exec(`SELECT clave FROM archivos
+      WHERE (mensaje IS NULL AND ts < ?) OR (mensaje IS NOT NULL AND mensaje NOT IN (SELECT id FROM mensajes))
+      LIMIT 500`, limite).toArray().map((f) => f.clave);
+    if (!sobran.length) return;
+    if (this.env.ARCHIVOS) {
+      try { await this.env.ARCHIVOS.delete(sobran.map((c) => "m/" + c)); } catch (e) { return; } // se reintenta en la próxima limpieza
+    }
+    for (const c of sobran) this.sql.exec("DELETE FROM archivos WHERE clave = ?", c);
+  }
+
+  // Quién es, a partir del token en "Authorization: Bearer ...".
+  async usuarioDe(request) {
+    const m = /^Bearer ([a-f0-9]{64})$/.exec(request.headers.get("Authorization") || "");
+    if (!m) return null;
+    const f = this.sql.exec(`SELECT u.nombre AS nombre FROM sesiones s JOIN usuarios u ON u.nombre = s.nombre
+      WHERE s.token_hash = ?`, await sha256(m[1])).toArray()[0];
+    return f ? f.nombre : null;
+  }
+
+  async subir(request) {
+    const nombre = await this.usuarioDe(request);
+    if (!nombre) return json({ error: "sesion" }, 401);
+    if (!this.env.ARCHIVOS) return json({ error: "sin_archivos" }, 503);
+    const tipo = request.headers.get("X-Tipo") || "";
+    const reglas = ARCHIVO_TIPOS[tipo];
+    const mime = String(request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+    if (!reglas || !reglas.tipos.includes(mime)) return json({ error: "tipo" }, 415);
+    const declarado = Number(request.headers.get("Content-Length") || 0);
+    if (declarado > reglas.max) return json({ error: "grande" }, 413);
+    const ahora = Date.now();
+    const recientes = this.sql.exec("SELECT COUNT(*) AS c FROM archivos WHERE nombre = ? AND ts > ?", nombre, ahora - SUBIDAS_VENTANA).one().c;
+    if (recientes >= SUBIDAS_MAX) return json({ error: "muchos" }, 429);
+    const datos = await request.arrayBuffer();
+    if (!datos.byteLength) return json({ error: "vacio" }, 400);
+    if (datos.byteLength > reglas.max) return json({ error: "grande" }, 413);
+    const entero = (h, max) => Math.max(0, Math.min(max, Math.round(Number(request.headers.get(h)) || 0)));
+    const dur = entero("X-Duracion", 600), ancho = entero("X-Ancho", 10000), alto = entero("X-Alto", 10000);
+    if (reglas.dur && dur > reglas.dur + 1) return json({ error: "largo" }, 400);
+    const clave = aleatorio(20);
+    await this.env.ARCHIVOS.put("m/" + clave, datos, { httpMetadata: { contentType: mime } });
+    this.sql.exec(`INSERT INTO archivos (clave, nombre, tipo, mime, tam, dur, ancho, alto, ts, mensaje)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`, clave, nombre, tipo, mime, datos.byteLength, dur, ancho, alto, ahora);
+    await this.programarLimpieza();
+    return json({ clave });
+  }
+
+  // Solo quien puede ver el mensaje (está en ese chat y no lo borró para sí) puede bajar su archivo.
+  async bajar(request, clave) {
+    const nombre = await this.usuarioDe(request);
+    if (!nombre) return json({ error: "sesion" }, 401);
+    const a = this.sql.exec(`SELECT a.mime AS mime, m.id AS id, m.sala AS sala FROM archivos a
+      JOIN mensajes m ON m.id = a.mensaje WHERE a.clave = ?`, clave).toArray()[0];
+    if (!a || !esMiembro(a.sala, nombre)) return json({ error: "no_existe" }, 404);
+    const oculto = this.sql.exec("SELECT hasta FROM ocultos WHERE nombre = ? AND sala = ?", nombre, a.sala).toArray()[0];
+    if (oculto && a.id <= oculto.hasta) return json({ error: "no_existe" }, 404);
+    const obj = this.env.ARCHIVOS ? await this.env.ARCHIVOS.get("m/" + clave) : null;
+    if (!obj) return json({ error: "no_existe" }, 404);
+    return new Response(obj.body, {
+      headers: {
+        "Content-Type": a.mime,
+        "Content-Length": String(obj.size),
+        // Sin caché del navegador: cada pedido se revisa con la sesión (la página guarda el archivo en memoria).
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": "inline",
+      },
+    });
   }
 
   async fetch(request) {
@@ -247,6 +382,9 @@ export class SalaSocial extends DurableObject {
       par[1].serializeAttachment({ nombre: null, ip });
       return new Response(null, { status: 101, webSocket: par[0] });
     }
+    if (url.pathname === "/subir" && request.method === "POST") return this.subir(request);
+    const bajar = /^\/archivo\/([a-f0-9]{40})$/.exec(url.pathname);
+    if (bajar && request.method === "GET") return this.bajar(request, bajar[1]);
     return new Response("No encontrado", { status: 404 });
   }
 
@@ -457,8 +595,8 @@ export class SalaSocial extends DurableObject {
       // Sin los mensajes de los chats que esta persona borró para sí.
       const ocultos = new Map(this.sql.exec("SELECT sala, hasta FROM ocultos WHERE nombre = ?", fila.nombre).toArray()
         .map((o) => [o.sala, o.hasta]));
-      const mensajes = this.sql.exec("SELECT id, sala, nombre, texto, ts FROM mensajes ORDER BY id").toArray()
-        .filter((x) => esMiembro(x.sala, fila.nombre) && x.id > (ocultos.get(x.sala) || 0));
+      const mensajes = this.sql.exec("SELECT id, sala, nombre, texto, ts, archivo, tipo, dur, ancho, alto FROM mensajes ORDER BY id").toArray()
+        .filter((x) => esMiembro(x.sala, fila.nombre) && x.id > (ocultos.get(x.sala) || 0)).map(paraEnviar);
       const lecturas = this.sql.exec("SELECT nombre, sala, id FROM lecturas").toArray()
         .filter((x) => esMiembro(x.sala, fila.nombre)).map((x) => ({ n: x.nombre, sala: x.sala, id: x.id }));
       this.enviar(ws, { t: "hola", yo: fila.nombre, mensajes, lecturas, perfiles: this.perfiles(), horas: this.horas(), admin,
@@ -475,16 +613,30 @@ export class SalaSocial extends DurableObject {
       const sala = m.sala === undefined ? "general" : m.sala;
       if (!this.salaPermitida(sala, yo.nombre)) { this.enviar(ws, { t: "error", e: "sala", cid: m.cid }); return; }
       const texto = limpiarTexto(m.texto, true);
-      if (!texto) return;
+      // Archivo ya subido por esta misma persona y todavía sin enviar.
+      let arch = null;
+      if (m.archivo !== undefined) {
+        arch = CLAVE_ARCHIVO.test(String(m.archivo || ""))
+          ? this.sql.exec("SELECT clave, tipo, dur, ancho, alto FROM archivos WHERE clave = ? AND nombre = ? AND mensaje IS NULL",
+            m.archivo, yo.nombre).toArray()[0]
+          : null;
+        if (!arch) { this.enviar(ws, { t: "error", e: "archivo", cid: m.cid }); return; }
+      }
+      if (!texto && !arch) return;
       if ([...texto].length > MAX_LARGO) { this.enviar(ws, { t: "error", e: "largo", cid: m.cid }); return; }
       this.ultimoEnvio.set(yo.nombre, ahora);
-      const id = this.sql.exec("INSERT INTO mensajes (sala, nombre, texto, ts) VALUES (?, ?, ?, ?) RETURNING id",
-        sala, yo.nombre, texto, ahora).one().id;
+      const id = this.sql.exec(`INSERT INTO mensajes (sala, nombre, texto, ts, archivo, tipo, dur, ancho, alto)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, sala, yo.nombre, texto, ahora,
+        arch ? arch.clave : null, arch ? arch.tipo : null, arch ? arch.dur : 0, arch ? arch.ancho : 0, arch ? arch.alto : 0).one().id;
+      if (arch) this.sql.exec("UPDATE archivos SET mensaje = ? WHERE clave = ?", id, arch.clave);
       this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", ahora, yo.nombre);
       this.marcarLeido(yo.nombre, sala, id);
       this.limpiar();
-      this.enviarASala(sala, { t: "msg", m: { id, sala, nombre: yo.nombre, texto, ts: ahora }, cid: m.cid });
+      const nuevo = paraEnviar({ id, sala, nombre: yo.nombre, texto, ts: ahora,
+        archivo: arch && arch.clave, tipo: arch && arch.tipo, dur: arch ? arch.dur : 0, ancho: arch ? arch.ancho : 0, alto: arch ? arch.alto : 0 });
+      this.enviarASala(sala, { t: "msg", m: nuevo, cid: m.cid });
       this.enviarASala(sala, { t: "leido", n: yo.nombre, sala, id });
+      await this.limpiarArchivos();
       await this.programarLimpieza();
       return;
     }
@@ -573,6 +725,7 @@ export class SalaSocial extends DurableObject {
       this.cerrarDe(yo.nombre, 4001, "cuenta_borrada");
       this.enviarATodos({ t: "perfil_borrado", n: yo.nombre });
       this.enviarATodos(this.estado());
+      await this.limpiarArchivos();
       return;
     }
 
@@ -655,6 +808,7 @@ export class SalaSocial extends DurableObject {
       this.cerrarDe(u.nombre, 4001, "sacado");
       this.enviarATodos({ t: "perfil_borrado", n: u.nombre });
       this.enviarATodos(this.estado());
+      await this.limpiarArchivos();
       this.responderAdmin(ws, { t: "admin_ok", accion: "sacar", n: u.nombre });
       return;
     }
@@ -665,6 +819,7 @@ export class SalaSocial extends DurableObject {
       if (!msg || !esMiembro(msg.sala, yo.nombre)) { this.enviar(ws, { t: "error", e: "no_existe" }); return; }
       this.sql.exec("DELETE FROM mensajes WHERE id = ?", msg.id);
       this.enviarASala(msg.sala, { t: "borrado", sala: msg.sala, id: msg.id });
+      await this.limpiarArchivos();
       this.responderAdmin(ws, { t: "admin_ok", accion: "mensaje" });
       return;
     }
@@ -676,6 +831,7 @@ export class SalaSocial extends DurableObject {
       this.sql.exec("DELETE FROM mensajes WHERE sala = ?", sala);
       this.sql.exec("DELETE FROM lecturas WHERE sala = ?", sala);
       this.enviarASala(sala, { t: "chat_borrado", sala, por: "admin" });
+      await this.limpiarArchivos();
       this.responderAdmin(ws, { t: "admin_ok", accion: "chat" });
     }
   }

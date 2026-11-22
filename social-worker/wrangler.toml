@@ -21,6 +21,16 @@ DIAS_SESION = "30"
 # Páginas que pueden usar el chat (separadas por coma).
 ORIGENES = "https://shukitostudio.github.io,http://localhost:8080,http://127.0.0.1:8080"
 
+# Fotos, videos y audios del chat (Cloudflare R2). Antes de publicar, una sola vez:
+#   1) Activar R2 en el panel de Cloudflare (pide una tarjeta, aunque los primeros 10 GB son gratis).
+#   2) npx wrangler r2 bucket create shukito-social-archivos
+#   3) Regla de respaldo para que R2 borre solo lo que quede después de 2 días:
+#      npx wrangler r2 bucket lifecycle add shukito-social-archivos borrar-2-dias m/ --expire-days 2
+# El servidor ya borra cada archivo junto con su mensaje (a las 24 horas); la regla es por si acaso.
+[[r2_buckets]]
+binding = "ARCHIVOS"
+bucket_name = "shukito-social-archivos"
+
 [[durable_objects.bindings]]
 name = "SALA"
 class_name = "SalaSocial"

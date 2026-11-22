@@ -198,6 +198,9 @@
     if (!priv.hidden) cerrarPrivacidad();
     else if (!ventanaAvatar.hidden) cerrarVentanaAvatar();
     else if (!ventanaAdmin.hidden) cerrarVentanaAdmin();
+    else if (!$('social-visor').hidden) cerrarVisor();
+    else if (!$('social-ventana-medio').hidden) cerrarVentanaMedio();
+    else if (!$('social-grabando').hidden) cancelarGrabacion();
     else if (!menu.hidden) cerrarMenu(true);
     else if (!menuChat.hidden) cerrarMenuChat(true);
     else if (!$('social-estado-form').hidden) cancelarEstado();
@@ -310,6 +313,10 @@
     cerrarMenu(false);
     cerrarVentanaAvatar();
     cerrarVentanaAdmin();
+    cerrarVentanaMedio();
+    cancelarGrabacion();
+    cerrarVisor();
+    soltarArchivos();
     cancelarEstado();
     cerrarPanel(false);
     chats = {}; lecturas = {}; usuarios = []; pendientes = {}; perfiles = {};
@@ -614,7 +621,7 @@
       var u = ultimo(sala), linea = t('socialSinMensajes');
       if (u) {
         var deMi = minus(u.nombre) === yoMinus();
-        linea = deMi ? t('socialTuPrefijo') + u.texto : sala === GENERAL ? u.nombre + ': ' + u.texto : u.texto;
+        linea = deMi ? t('socialTuPrefijo') + resumen(u) : sala === GENERAL ? u.nombre + ': ' + resumen(u) : resumen(u);
       }
       var cuantos = noLeidos(sala);
       var titulo = nombreSala(sala);
@@ -881,7 +888,7 @@
     if (avisos.notif && document.visibilityState !== 'visible' && puedeNotificar() && Notification.permission === 'granted') {
       try {
         var titulo = m.sala === GENERAL ? t('socialNotifGeneral', { n: m.nombre }) : m.nombre;
-        var n = new Notification(titulo, { body: Array.from(m.texto).slice(0, 140).join(''), tag: 'shukito-' + m.sala, icon: 'assets/logo.webp' });
+        var n = new Notification(titulo, { body: Array.from(resumen(m)).slice(0, 140).join(''), tag: 'shukito-' + m.sala, icon: 'assets/logo.webp' });
         n.onclick = function () {
           window.focus();
           abrir();
@@ -980,12 +987,333 @@
     ws.send(JSON.stringify({ t: 'ocultar_chat', sala: salaActual }));
   });
 
+  /* ---------- Fotos, videos y audios ---------- */
+  var M = window.socialMedios || null;
+  var archivosCargados = {};    // clave -> promesa de la dirección local (blob:) del archivo
+  var medioPendiente = null;    // foto o video listo para enviar: {blob, mime, tipo, dur, ancho, alto, url, sala}
+  var preparando = null;        // marca del trabajo de reducción en curso
+  var subida = null;            // subida en curso (XMLHttpRequest)
+  var grabadora = null;         // grabación de audio en curso
+  var salaGrabacion = GENERAL;
+
+  function duracion(seg) {
+    seg = Math.max(0, Math.round(seg || 0));
+    return Math.floor(seg / 60) + ':' + ('0' + (seg % 60)).slice(-2);
+  }
+  function etiquetaMedio(m) {
+    if (m.tipo === 'foto') return '📷 ' + t('socialFotoNombre');
+    if (m.tipo === 'video') return '🎥 ' + t('socialVideoNombre') + ' (' + duracion(m.dur) + ')';
+    return '🎤 ' + t('socialAudioNombre') + ' (' + duracion(m.dur) + ')';
+  }
+  // Texto corto de un mensaje para la lista de chats y las notificaciones.
+  function resumen(m) {
+    if (!m.archivo) return m.texto;
+    return etiquetaMedio(m) + (m.texto ? ' ' + m.texto : '');
+  }
+  function errorMedio(motivo) {
+    return t({
+      sin_archivos: 'socialErrSinArchivos', grande: 'socialErrGrande', muchos: 'socialErrMuchos',
+      tipo: 'socialErrFormato', formato: 'socialErrFormato', largo: 'socialErrLargoMedio',
+      sesion: 'socialErrSesion', permiso: 'socialErrMicrofono', sin_grabador: 'socialErrSinGrabador',
+      reproducir: 'socialErrFormato', vacio: 'socialErrFormato'
+    }[motivo] || 'socialErrRed');
+  }
+
+  // Baja el archivo con el token de la sesión (nunca en la dirección) y lo guarda en memoria.
+  function cargarArchivo(clave) {
+    if (!archivosCargados[clave]) {
+      archivosCargados[clave] = fetch(SOCIAL_SERVIDOR + '/archivo/' + clave, {
+        headers: { Authorization: 'Bearer ' + (sesion ? sesion.token : '') },
+        cache: 'no-store'
+      }).then(function (r) {
+        if (!r.ok) throw r.status;
+        return r.blob();
+      }).then(function (b) {
+        return URL.createObjectURL(b);
+      });
+      archivosCargados[clave].catch(function () { delete archivosCargados[clave]; });
+    }
+    return archivosCargados[clave];
+  }
+  function soltarArchivos() {
+    for (var c in archivosCargados) archivosCargados[c].then(function (u) { URL.revokeObjectURL(u); }, function () { /* nada */ });
+    archivosCargados = {};
+  }
+
+  // Los archivos se bajan solo cuando su mensaje está a la vista (o cerca).
+  var observador = 'IntersectionObserver' in window ? new IntersectionObserver(function (entradas) {
+    entradas.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      observador.unobserve(e.target);
+      mostrarMedio(e.target);
+    });
+  }, { root: lista, rootMargin: '400px 0px' }) : null;
+
+  function crearMedio(m) {
+    var caja = document.createElement('div');
+    caja.className = 'social-medio ' + m.tipo;
+    if (m.tipo !== 'audio' && m.ancho && m.alto) caja.style.aspectRatio = m.ancho + ' / ' + m.alto;
+    caja.setAttribute('data-archivo', m.archivo);
+    caja.setAttribute('data-tipo', m.tipo);
+    caja.setAttribute('data-de', m.nombre || '');
+    var espera = document.createElement('span');
+    espera.className = 'social-medio-espera';
+    espera.textContent = etiquetaMedio(m);
+    caja.appendChild(espera);
+    if (observador) observador.observe(caja); else setTimeout(function () { mostrarMedio(caja); }, 0);
+    return caja;
+  }
+
+  function mostrarMedio(caja) {
+    var clave = caja.getAttribute('data-archivo'), tipo = caja.getAttribute('data-tipo');
+    var espera = caja.querySelector('.social-medio-espera');
+    cargarArchivo(clave).then(function (url) {
+      var el;
+      if (tipo === 'foto') {
+        el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'social-medio-boton';
+        el.setAttribute('aria-label', t('socialVerFoto', { n: caja.getAttribute('data-de') }));
+        var img = document.createElement('img');
+        img.alt = '';
+        img.src = url;
+        el.appendChild(img);
+        el.addEventListener('click', function () { abrirVisor(url); });
+      } else {
+        el = document.createElement(tipo === 'video' ? 'video' : 'audio');
+        el.controls = true;
+        el.preload = 'metadata';
+        el.setAttribute('playsinline', '');
+        el.src = url;
+      }
+      caja.textContent = '';
+      caja.appendChild(el);
+    }).catch(function () {
+      if (!espera) return;
+      espera.textContent = t('socialErrCargar');
+      espera.classList.add('error');
+      espera.setAttribute('role', 'button');
+      espera.tabIndex = 0;
+      var reintentar = function () {
+        espera.textContent = t('socialCargando');
+        espera.classList.remove('error');
+        espera.removeAttribute('role');
+        espera.onclick = espera.onkeydown = null;
+        mostrarMedio(caja);
+      };
+      espera.onclick = reintentar;
+      espera.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); reintentar(); } };
+    });
+  }
+
+  // Foto en grande
+  function abrirVisor(url) {
+    $('social-visor-img').src = url;
+    $('social-visor').hidden = false;
+    $('social-visor-cerrar').focus();
+  }
+  function cerrarVisor() {
+    if ($('social-visor').hidden) return;
+    $('social-visor').hidden = true;
+    $('social-visor-img').removeAttribute('src');
+  }
+  $('social-visor-cerrar').addEventListener('click', cerrarVisor);
+  $('social-visor').addEventListener('click', function (e) { if (e.target === this) cerrarVisor(); });
+
+  // Sube el archivo. Devuelve la clave que el servidor le dio.
+  function subirArchivo(medio, alProgreso) {
+    return new Promise(function (ok, mal) {
+      var x = new XMLHttpRequest();
+      subida = x;
+      x.open('POST', SOCIAL_SERVIDOR + '/subir');
+      x.setRequestHeader('Authorization', 'Bearer ' + sesion.token);
+      x.setRequestHeader('Content-Type', medio.mime);
+      x.setRequestHeader('X-Tipo', medio.tipo);
+      x.setRequestHeader('X-Duracion', String(medio.dur || 0));
+      x.setRequestHeader('X-Ancho', String(medio.ancho || 0));
+      x.setRequestHeader('X-Alto', String(medio.alto || 0));
+      x.upload.onprogress = function (e) { if (e.lengthComputable && alProgreso) alProgreso(e.loaded / e.total); };
+      x.onload = function () {
+        subida = null;
+        var d = {};
+        try { d = JSON.parse(x.responseText); } catch (e) { /* nada */ }
+        if (x.status === 200 && d.clave) ok(d.clave); else mal(d.error || 'red');
+      };
+      x.onerror = function () { subida = null; mal('red'); };
+      x.onabort = function () { subida = null; mal('cancelado'); };
+      x.send(medio.blob);
+    });
+  }
+
+  // El servidor acepta un mensaje por segundo: si hace falta, se espera un poco antes de enviar.
+  function enviarConArchivo(clave, texto, sala) {
+    var espera = Math.max(0, 1000 - (Date.now() - ultimoEnvio));
+    setTimeout(function () {
+      if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+      ultimoEnvio = Date.now();
+      var cid = ultimoEnvio.toString(36) + Math.random().toString(36).slice(2, 7);
+      ws.send(JSON.stringify({ t: 'msg', sala: sala, texto: texto || '', archivo: clave, cid: cid }));
+    }, espera);
+  }
+
+  // --- Foto o video: elegir, reducir, ver antes de enviar ---
+  var ventanaMedio = $('social-ventana-medio');
+  function estadoMedio(texto) { $('social-medio-estado').textContent = texto || ''; }
+  function abrirVentanaMedio(tipo) {
+    cerrarMenu(false);
+    cerrarMenuChat(false);
+    $('social-ventana-medio-titulo').textContent = t(tipo === 'video' ? 'socialEnviarVideo' : 'socialEnviarFoto');
+    $('social-medio-previa').textContent = '';
+    $('social-medio-texto').value = caja.value.trim();
+    $('social-medio-error').textContent = '';
+    $('social-medio-enviar').disabled = true;
+    ventanaMedio.hidden = false;
+    $('social-medio-cancelar').focus();
+  }
+  function cerrarVentanaMedio() {
+    preparando = null;
+    if (subida) subida.abort();
+    if (medioPendiente && medioPendiente.url) URL.revokeObjectURL(medioPendiente.url);
+    medioPendiente = null;
+    if (ventanaMedio.hidden) return;
+    ventanaMedio.hidden = true;
+    $('social-medio-previa').textContent = '';
+    if (abierto && !chat.hidden) $('social-adjuntar').focus();
+  }
+  function tamano(bytes) {
+    if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1).replace('.', idioma() === 'en' ? '.' : ',') + ' MB';
+  }
+
+  $('social-adjuntar').addEventListener('click', function () {
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    $('social-archivo').click();
+  });
+  $('social-archivo').addEventListener('change', function () {
+    var archivo = this.files && this.files[0];
+    this.value = '';
+    if (!archivo || !M) return;
+    var esVideo = /^video\//.test(archivo.type), esFoto = /^image\//.test(archivo.type);
+    if (!esVideo && !esFoto) { mostrarAviso(t('socialErrFormato')); return; }
+    var tipo = esVideo ? 'video' : 'foto';
+    abrirVentanaMedio(tipo);
+    estadoMedio(t(esVideo ? 'socialPreparandoVideo' : 'socialPreparando', { p: 0 }));
+    var marca = {};
+    preparando = marca;
+    var sala = salaActual;
+    var trabajo = esFoto ? M.reducirFoto(archivo)
+      : M.reducirVideo(archivo, function (p) { if (preparando === marca) estadoMedio(t('socialPreparandoVideo', { p: Math.round(p * 100) })); });
+    trabajo.then(function (res) {
+      if (preparando !== marca) return;
+      preparando = null;
+      res.tipo = tipo;
+      res.sala = sala;
+      res.url = URL.createObjectURL(res.blob);
+      medioPendiente = res;
+      var previa = $('social-medio-previa');
+      var el = document.createElement(esFoto ? 'img' : 'video');
+      if (esFoto) el.alt = t('socialVistaPrevia');
+      else { el.controls = true; el.setAttribute('playsinline', ''); el.preload = 'metadata'; }
+      el.src = res.url;
+      previa.appendChild(el);
+      var nota = tamano(res.blob.size) + (esVideo ? ' · ' + duracion(res.dur) : '');
+      if (res.cortado) nota += ' · ' + t('socialVideoCortado', { s: M.VIDEO_SEG });
+      estadoMedio(nota);
+      $('social-medio-enviar').disabled = false;
+      $('social-medio-texto').focus();
+    }).catch(function (motivo) {
+      if (preparando !== marca) return;
+      preparando = null;
+      estadoMedio('');
+      $('social-medio-error').textContent = errorMedio(motivo);
+    });
+  });
+  $('social-medio-cancelar').addEventListener('click', cerrarVentanaMedio);
+  ventanaMedio.addEventListener('click', function (e) { if (e.target === ventanaMedio) cerrarVentanaMedio(); });
+  $('social-form-medio').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var medio = medioPendiente;
+    if (!medio || subida) return;
+    var texto = $('social-medio-texto').value.trim();
+    if (Array.from(texto).length > MAX_LARGO) { $('social-medio-error').textContent = t('socialErrLargo'); return; }
+    $('social-medio-enviar').disabled = true;
+    $('social-medio-error').textContent = '';
+    estadoMedio(t('socialSubiendo', { p: 0 }));
+    subirArchivo(medio, function (p) { estadoMedio(t('socialSubiendo', { p: Math.round(p * 100) })); }).then(function (clave) {
+      enviarConArchivo(clave, texto, medio.sala);
+      if (texto && caja.value.trim() === texto) { caja.value = ''; ajustarCaja(); }
+      cerrarVentanaMedio();
+    }).catch(function (motivo) {
+      if (motivo === 'cancelado') return;
+      estadoMedio('');
+      $('social-medio-error').textContent = errorMedio(motivo);
+      $('social-medio-enviar').disabled = false;
+    });
+  });
+
+  // --- Audio: grabar con el micrófono (máximo 1 minuto) ---
+  function mostrarGrabando(si) {
+    $('social-grabando').hidden = !si;
+    $('social-form').hidden = si;
+    contador.hidden = si;
+    $('social-grabando-enviar').disabled = false;
+    $('social-grabando-cancelar').disabled = false;
+    $('social-grabando-estado').textContent = '';
+  }
+  function cancelarGrabacion() {
+    if (grabadora) { grabadora.cancelar(); grabadora = null; }
+    if (subida && $('social-grabando').hidden === false) subida.abort();
+    if (!$('social-grabando').hidden) { mostrarGrabando(false); $('social-microfono').focus(); }
+  }
+  function enviarGrabacion() {
+    if (!grabadora) return;
+    var g = grabadora, sala = salaGrabacion;
+    grabadora = null;
+    $('social-grabando-enviar').disabled = true;
+    $('social-grabando-estado').textContent = t('socialSubiendo', { p: 0 });
+    g.detener().then(function (res) {
+      res.tipo = 'audio';
+      return subirArchivo(res, function (p) { $('social-grabando-estado').textContent = t('socialSubiendo', { p: Math.round(p * 100) }); });
+    }).then(function (clave) {
+      enviarConArchivo(clave, '', sala);
+      mostrarGrabando(false);
+      caja.focus();
+    }).catch(function (motivo) {
+      mostrarGrabando(false);
+      if (motivo !== 'cancelado') mostrarAviso(errorMedio(motivo));
+    });
+  }
+  $('social-microfono').addEventListener('click', function () {
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    if (!M || !M.puedeGrabar()) { mostrarAviso(t('socialErrSinGrabador')); return; }
+    salaGrabacion = salaActual;
+    var maximo = duracion(M.AUDIO_SEG);
+    $('social-grabando-tiempo').textContent = '0:00 / ' + maximo;
+    mostrarGrabando(true);
+    $('social-grabando-estado').textContent = t('socialGrabando');
+    grabadora = M.crearGrabadora(function (seg) {
+      $('social-grabando-tiempo').textContent = duracion(Math.floor(Math.min(seg, M.AUDIO_SEG))) + ' / ' + maximo;
+    }, enviarGrabacion);
+    var esta = grabadora;
+    $('social-grabando-enviar').focus();
+    grabadora.iniciar().catch(function (motivo) {
+      if (grabadora !== esta) return;
+      grabadora = null;
+      mostrarGrabando(false);
+      mostrarAviso(errorMedio(motivo));
+    });
+  });
+  $('social-grabando-cancelar').addEventListener('click', cancelarGrabacion);
+  $('social-grabando-enviar').addEventListener('click', enviarGrabacion);
+
   /* ---------- Conexión ---------- */
   function conectar() {
     if (!sesion || (ws && ws.readyState <= 1)) return;
     clearTimeout(temporizador);
     estadoTxt.textContent = t('socialConectando');
     botonEnviar.disabled = true;
+    $('social-adjuntar').disabled = true;
+    $('social-microfono').disabled = true;
     try { ws = new WebSocket(URL_WS); } catch (e) { reconectar(); return; }
     ws.onopen = function () {
       ws.send(JSON.stringify({ t: 'auth', token: sesion.token }));
@@ -1004,6 +1332,8 @@
   function reconectar() {
     estadoTxt.textContent = t('socialConectando');
     botonEnviar.disabled = true;
+    $('social-adjuntar').disabled = true;
+    $('social-microfono').disabled = true;
     reintento = Math.min(reintento + 1, 6);
     temporizador = setTimeout(conectar, Math.min(1000 * Math.pow(1.7, reintento), 15000));
   }
@@ -1048,7 +1378,7 @@
       pintarCabeceraSala();
       pintarTodo();
       refrescarListas();
-      botonEnviar.disabled = !caja.value.trim();
+      ajustarCaja();
       clearInterval(latido);
       latido = setInterval(function () { if (ws && ws.readyState === 1) ws.send('ping'); }, 25000);
       marcarLeido();
@@ -1167,7 +1497,7 @@
       if (p) { delete pendientes[m.cid]; p.fila.remove(); }
       mostrarAviso(m.e === 'rapido' ? t('socialErrRapido') : m.e === 'largo' ? t('socialErrLargo')
         : m.e === 'estado_largo' ? t('socialErrEstado') : m.e === 'avatar' ? t('socialErrFoto')
-        : m.e === 'sala' ? t('socialErrSala') : '');
+        : m.e === 'sala' ? t('socialErrSala') : m.e === 'archivo' ? t('socialErrArchivo') : '');
       // Errores del administrador
       var minutosA = Math.max(1, Math.ceil((m.espera || 600) / 60));
       if (m.e === 'admin_clave') $('social-admin-error').textContent = t('socialAdminErrClave', { n: m.quedan });
@@ -1209,7 +1539,7 @@
   }
 
   // En el chat general, los mensajes de otros llevan su avatar y su nombre.
-  function crearBurbuja(nombre, texto, ts, mio, conAutor) {
+  function crearBurbuja(nombre, texto, ts, mio, conAutor, medio) {
     var fila = document.createElement('div');
     fila.className = 'social-fila ' + (mio ? 'mia' : 'otra');
     if (conAutor) {
@@ -1229,10 +1559,13 @@
       autor.textContent = nombre;
       b.appendChild(autor);
     }
-    var cuerpo = document.createElement('span');
-    cuerpo.className = 'social-cuerpo';
-    cuerpo.textContent = texto;
-    b.appendChild(cuerpo);
+    if (medio && medio.archivo) b.appendChild(crearMedio(medio));
+    if (texto) {
+      var cuerpo = document.createElement('span');
+      cuerpo.className = 'social-cuerpo';
+      cuerpo.textContent = texto;
+      b.appendChild(cuerpo);
+    }
     var pie = document.createElement('span');
     pie.className = 'social-pie';
     var h = document.createElement('time');
@@ -1261,7 +1594,7 @@
     if (vacio) vacio.remove();
     var mio = sesion && minus(m.nombre) === yoMinus();
     var cerca = lista.scrollHeight - lista.scrollTop - lista.clientHeight < 120;
-    var fila = crearBurbuja(m.nombre, m.texto, m.ts, mio, !mio && salaActual === GENERAL);
+    var fila = crearBurbuja(m.nombre, m.texto, m.ts, mio, !mio && salaActual === GENERAL, m);
     fila.setAttribute('data-id', m.id);
     if (esAdmin) {
       // Papelera del administrador en cada mensaje guardado.
@@ -1335,7 +1668,10 @@
     var n = largo(caja.value);
     contador.textContent = n > MAX_LARGO - 80 ? (MAX_LARGO - n) + '' : '';
     contador.classList.toggle('excedido', n > MAX_LARGO);
-    botonEnviar.disabled = !caja.value.trim() || n > MAX_LARGO || !ws || ws.readyState !== 1;
+    var conectado = !!ws && ws.readyState === 1;
+    botonEnviar.disabled = !caja.value.trim() || n > MAX_LARGO || !conectado;
+    $('social-adjuntar').disabled = !conectado;
+    $('social-microfono').disabled = !conectado;
   }
   caja.addEventListener('input', function () {
     ajustarCaja();

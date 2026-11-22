@@ -253,6 +253,32 @@
       </div>
 
       <!-- Entrar como administrador -->
+      <!-- Vista previa de una foto o un video antes de enviarlo -->
+      <div id="social-ventana-medio" class="social-ventana" role="dialog" aria-modal="true" aria-labelledby="social-ventana-medio-titulo" hidden>
+        <form id="social-form-medio" class="social-ventana-caja" autocomplete="off" novalidate>
+          <h3 id="social-ventana-medio-titulo"></h3>
+          <div id="social-medio-previa" class="social-medio-previa"></div>
+          <p id="social-medio-estado" class="social-nota" role="status"></p>
+          <label class="social-campo">
+            <span data-i="socialComentario"></span>
+            <input id="social-medio-texto" type="text" maxlength="500" data-i-ph="socialComentarioPista">
+          </label>
+          <p id="social-medio-error" class="social-error" role="alert"></p>
+          <div class="social-ventana-botones">
+            <button type="button" id="social-medio-cancelar" class="social-boton secundario"><span data-i="socialCancelar"></span></button>
+            <button type="submit" id="social-medio-enviar" class="social-boton"><span data-i="socialEnviar"></span></button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Foto en grande -->
+      <div id="social-visor" class="social-visor" role="dialog" aria-modal="true" data-i-label="socialFotoGrande" hidden>
+        <img id="social-visor-img" alt="">
+        <button type="button" id="social-visor-cerrar" class="social-icono" data-i-label="socialCerrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
       <div id="social-ventana-admin" class="social-ventana" role="dialog" aria-modal="true" aria-labelledby="social-ventana-admin-titulo" hidden>
         <form id="social-form-admin" class="social-ventana-caja" autocomplete="off" novalidate>
           <h3 id="social-ventana-admin-titulo" data-i="socialAdminTitulo"></h3>
@@ -303,11 +329,27 @@
           <div id="social-mensajes" class="social-mensajes" aria-live="polite"></div>
           <div id="social-escribiendo" class="social-escribiendo" aria-live="polite"></div>
           <form id="social-form" class="social-form" autocomplete="off">
+            <button type="button" id="social-adjuntar" class="social-boton-redondo" data-i-label="socialAdjuntar">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5l-7.8 7.8a5 5 0 01-7.1-7.1l8.5-8.5a3.3 3.3 0 014.7 4.7l-8.5 8.5a1.7 1.7 0 01-2.4-2.4l7.8-7.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <input type="file" id="social-archivo" accept="image/*,video/*" hidden>
             <textarea id="social-texto" rows="1" maxlength="500" data-i-ph="socialEscribe" data-i-label="socialEscribe"></textarea>
+            <button type="button" id="social-microfono" class="social-boton-redondo" data-i-label="socialGrabarAudio">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
             <button type="submit" id="social-enviar" class="social-enviar" data-i-label="socialEnviar" disabled>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l18-8L3 4v6l12 2-12 2z" fill="currentColor"/></svg>
             </button>
           </form>
+
+          <!-- Grabando un audio (máximo 1 minuto) -->
+          <div id="social-grabando" class="social-grabando" role="group" aria-labelledby="social-grabando-tiempo" hidden>
+            <span class="social-punto-rojo" aria-hidden="true"></span>
+            <span id="social-grabando-tiempo" class="social-grabando-tiempo" aria-live="off"></span>
+            <span id="social-grabando-estado" class="social-nota" role="status"></span>
+            <button type="button" id="social-grabando-cancelar" class="social-boton secundario chico"><span data-i="socialCancelar"></span></button>
+            <button type="button" id="social-grabando-enviar" class="social-boton chico"><span data-i="socialEnviarAudio"></span></button>
+          </div>
           <span id="social-contador" class="social-contador" aria-hidden="true"></span>
 
           <!-- Lista de chats: el general y los privados -->
@@ -366,6 +408,7 @@
         <li data-i="priv4"></li>
         <li data-i="priv6"></li>
         <li data-i="priv7"></li>
+        <li data-i="priv8"></li>
         <li data-i="priv5"></li>
       </ul>
       <button type="button" class="btn-madera btn-chico" id="priv-cerrar"><span data-i="privCerrar"></span></button>
@@ -375,6 +418,7 @@
   <script src="textos.js"></script>
   <script src="script.js"></script>
   <script src="social-avatares.js"></script>
+  <script src="social-medios.js"></script>
   <script src="social.js"></script>
 </body>
 </html>

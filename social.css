@@ -336,6 +336,56 @@ p.social-admin-bloque { display: block; margin-bottom: 6px; }
   border: 0; color: var(--so-acento-texto); background: var(--so-acento); box-shadow: 0 2px 4px rgba(0, 0, 0, .3);
 }
 .social-enviar svg { width: 22px; height: 22px; margin-left: 3px; }
+
+/* Adjuntar y micrófono */
+.social-boton-redondo {
+  flex: none; width: 44px; height: 46px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 12px; background: none; color: var(--so-tenue); cursor: pointer;
+}
+.social-boton-redondo svg { width: 24px; height: 24px; }
+.social-boton-redondo:hover:not(:disabled) { color: var(--so-acento); background: rgba(127, 140, 160, .14); }
+.social-boton-redondo:disabled { opacity: .4; cursor: default; }
+
+/* Barra mientras se graba un audio */
+.social-grabando {
+  flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px;
+  background: var(--so-barra); border-top: 1px solid var(--so-borde);
+}
+@media (min-width: 681px) { .social-grabando { border-radius: 0 0 14px 14px; } }
+.social-punto-rojo { width: 12px; height: 12px; border-radius: 50%; background: #e5332a; animation: social-latir 1s ease-in-out infinite; }
+@keyframes social-latir { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .social-punto-rojo { animation: none; } }
+.social-grabando-tiempo { font-weight: bold; font-variant-numeric: tabular-nums; }
+.social-grabando .social-nota { flex: 1; min-width: 80px; }
+
+/* Fotos, videos y audios dentro de las burbujas */
+.social-medio {
+  position: relative; width: 260px; max-width: 100%; margin: 2px 0 4px; border-radius: 10px; overflow: hidden;
+  background: rgba(127, 140, 160, .18);
+}
+.social-medio.foto, .social-medio.video { aspect-ratio: 4 / 3; max-height: 340px; }
+.social-medio.audio { width: 250px; overflow: visible; background: none; }
+.social-medio img, .social-medio video { display: block; width: 100%; height: 100%; object-fit: cover; background: #000; }
+.social-medio audio { display: block; width: 100%; height: 40px; }
+.social-medio-boton { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.social-medio-espera {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 8px; text-align: center;
+  font-size: 14px; color: var(--so-tenue);
+}
+.social-medio.audio .social-medio-espera { position: static; padding: 8px 4px; }
+.social-medio-espera.error { cursor: pointer; text-decoration: underline; }
+
+/* Vista previa antes de enviar */
+.social-medio-previa { display: grid; place-items: center; min-height: 60px; border-radius: 10px; overflow: hidden; background: rgba(127, 140, 160, .14); }
+.social-medio-previa img, .social-medio-previa video { display: block; max-width: 100%; max-height: 45vh; }
+
+/* Foto en grande */
+.social-visor {
+  position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 12px;
+  background: rgba(0, 0, 0, .88);
+}
+.social-visor img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.social-visor .social-icono { position: absolute; top: 10px; right: 10px; color: #fff; background: rgba(0, 0, 0, .5); }
 .social-enviar:disabled { opacity: .45; cursor: default; }
 .social-contador { position: absolute; right: 70px; bottom: 64px; font-size: 12px; color: var(--so-tenue); }
 .social-contador.excedido { color: var(--so-error); font-weight: bold; }
