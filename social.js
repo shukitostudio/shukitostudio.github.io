@@ -169,13 +169,74 @@
   var selectorCambiar = window.socialAvatares.crearSelector($('social-avatares-cambiar'), t,
     function (a) { avatarNuevo = a; }, function (txt) { $('social-ventana-error').textContent = txt; });
 
+  /* ---------- iPhone (Safari) ----------
+     En el iPhone el teclado NO encoge la pantalla: la página sigue midiendo lo mismo y Safari solo la
+     desplaza para que se vea el campo. Por eso el chat sigue a la "parte visible" (visualViewport) y la
+     página de atrás se deja quieta. Solo se activa en iPhone: en Android y en computadora no cambia nada. */
+  var esIPhone = /iPhone|iPod/.test(navigator.userAgent);
+  var vv = window.visualViewport;
+  var scrollGuardado = 0;
+  var tecladoAbierto = false;
+  if (esIPhone) document.documentElement.classList.add('social-ios');
+
+  function iphoneAntes() {
+    if (!esIPhone) return;
+    // La página se fija en su sitio (position: fixed) y se recuerda dónde estaba para volver igual.
+    scrollGuardado = window.pageYOffset || 0;
+    document.body.style.top = -scrollGuardado + 'px';
+  }
+  function iphoneAjustar() {
+    if (!esIPhone || !abierto) return;
+    var alto = vv ? vv.height : window.innerHeight;
+    var arriba = vv ? vv.offsetTop : 0;
+    raiz.style.height = Math.round(alto) + 'px';
+    raiz.style.top = Math.round(arriba) + 'px';
+    var foco = document.activeElement;
+    var escribiendo = !!foco && raiz.contains(foco) && /^(INPUT|TEXTAREA)$/.test(foco.tagName);
+    var teclado = !!(escribiendo && vv && window.innerHeight - vv.height > 120);
+    document.documentElement.classList.toggle('social-teclado', teclado);
+    // Al salir el teclado, el último mensaje sigue a la vista.
+    if (teclado && !tecladoAbierto && !chat.hidden) setTimeout(function () { bajar(true); }, 0);
+    tecladoAbierto = teclado;
+  }
+  function iphoneDespues() {
+    if (!esIPhone) return;
+    tecladoAbierto = false;
+    raiz.style.height = '';
+    raiz.style.top = '';
+    document.documentElement.classList.remove('social-teclado');
+    document.body.style.top = '';
+    restaurarScroll();
+    // Al volver atrás, el navegador puede mover la página después: se reafirma un instante más tarde.
+    setTimeout(function () { if (!abierto) restaurarScroll(); }, 150);
+  }
+  function restaurarScroll() {
+    if (Math.abs((window.pageYOffset || 0) - scrollGuardado) < 2) return;
+    // La página tiene desplazamiento suave: se apaga un instante para volver al mismo sitio sin animación.
+    var raizDoc = document.documentElement;
+    raizDoc.style.scrollBehavior = 'auto';
+    window.scrollTo(0, scrollGuardado);
+    raizDoc.style.scrollBehavior = '';
+  }
+  if (esIPhone) {
+    var reajustar = function () { setTimeout(iphoneAjustar, 50); setTimeout(iphoneAjustar, 350); };
+    if (vv) { vv.addEventListener('resize', iphoneAjustar); vv.addEventListener('scroll', iphoneAjustar); }
+    window.addEventListener('resize', iphoneAjustar);
+    window.addEventListener('orientationchange', function () { setTimeout(iphoneAjustar, 300); });
+    document.addEventListener('focusin', reajustar);
+    document.addEventListener('focusout', reajustar);
+  }
+
   /* ---------- Abrir / cerrar ---------- */
   function abrir() {
     if (abierto) return;
     abierto = true;
+    // Primero el historial: así el navegador guarda la posición real de la página (antes de fijarla).
+    history.pushState({ social: 1 }, '');
+    iphoneAntes();
     raiz.hidden = false;
     document.documentElement.classList.add('social-abierto');
-    history.pushState({ social: 1 }, '');
+    iphoneAjustar();
     if (sesion) { mostrarChat(); conectar(); marcarLeido(); actualizarAsterisco(); }
     else { mostrarEntrar(errorPendiente); errorPendiente = ''; }
   }
@@ -193,6 +254,7 @@
     cerrarVisor();
     raiz.hidden = true;
     document.documentElement.classList.remove('social-abierto');
+    iphoneDespues();
     // La conexión sigue abierta: así llegan los avisos de mensajes nuevos mientras la página está abierta.
     actualizarAsterisco();
     if (!desdeAtras && history.state && history.state.social) history.back();

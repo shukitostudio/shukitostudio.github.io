@@ -67,6 +67,24 @@ html.social-abierto, html.social-abierto body { overflow: hidden; }
 }
 @media (min-width: 681px) { .social-caja { padding-top: 16px; padding-bottom: 16px; } }
 
+/* ---------- Solo iPhone (Safari) ----------
+   El teclado no encoge la pantalla en el iPhone. social.js pone la clase "social-ios" y mide la parte
+   visible (visualViewport). Aquí: el chat tapa todo con un fondo sólido, la página de atrás queda fija
+   y, con el teclado abierto, no se deja hueco para la barra de inicio. */
+html.social-ios.social-abierto { overflow: hidden; overscroll-behavior: none; }
+html.social-ios.social-abierto body {
+  position: fixed; left: 0; right: 0; width: 100%; overflow: hidden; /* "top" lo pone social.js */
+}
+html.social-ios .social {
+  inset: auto; top: 0; left: 0; width: 100%;
+  height: 100vh; height: 100dvh; /* social.js lo iguala a la parte visible */
+  background: var(--so-chat);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  overscroll-behavior: none; touch-action: manipulation;
+}
+html.social-ios .social-caja { height: 100%; }
+html.social-ios.social-teclado .social-caja { padding-bottom: 0; }
+
 /* Franja de arriba con el mono */
 .social-cabecera {
   flex: none; display: flex; align-items: center; gap: 10px;
