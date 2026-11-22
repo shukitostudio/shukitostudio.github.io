@@ -182,6 +182,7 @@ export class SalaSocial extends DurableObject {
     this.sql = ctx.storage.sql;
     this.ultimoEnvio = new Map();
     this.ultimoPerfil = new Map();
+    this.ultimoEscribiendo = new Map();
     this.traduccionesRecientes = new Map(); // nombre -> horas de sus últimas traducciones
     this.sql.exec(`CREATE TABLE IF NOT EXISTS mensajes (
       id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, texto TEXT NOT NULL, ts INTEGER NOT NULL,
@@ -287,7 +288,7 @@ export class SalaSocial extends DurableObject {
     if (sala === "general") return true;
     if (typeof sala !== "string" || !esMiembro(sala, yo)) return false;
     const [a, b] = miembros(sala);
-    if (a === b) return false;
+    if (a === b || sala !== salaPrivada(a, b)) return false; // un solo nombre por pareja: "p:ana:beto", nunca "p:beto:ana"
     const otro = a === yo.toLowerCase() ? b : a;
     return this.sql.exec("SELECT nombre FROM usuarios WHERE nombre = ?", otro).toArray().length > 0;
   }
@@ -451,6 +452,11 @@ export class SalaSocial extends DurableObject {
     return iguales(await sha256(clave), await sha256(this.env.CLAVE));
   }
 
+  // Marca guardada en la sesión del administrador: cambia si cambia la clave de administrador.
+  async marcaAdmin() {
+    return "a:" + (await sha256("admin:" + String(this.env.ADMIN_CLAVE || ""))).slice(0, 24);
+  }
+
   async nuevaSesion(nombre, ahora) {
     const token = aleatorio(32);
     this.sql.exec("INSERT INTO sesiones (token_hash, nombre, visto) VALUES (?, ?, ?)", await sha256(token), nombre, ahora);
@@ -583,12 +589,24 @@ export class SalaSocial extends DurableObject {
     }
   }
 
+  // Protección contra quien manda mensajes sin parar: más de 40 cada 10 segundos se ignoran.
+  demasiado(ws) {
+    if (!this.ritmo) this.ritmo = new WeakMap();
+    const ahora = Date.now();
+    const r = this.ritmo.get(ws) || { desde: ahora, n: 0 };
+    if (ahora - r.desde > 10000) { r.desde = ahora; r.n = 0; }
+    r.n++;
+    this.ritmo.set(ws, r);
+    return r.n > 40;
+  }
+
   async webSocketMessage(ws, crudo) {
     if (typeof crudo !== "string" || crudo.length > MAX_WS) return;
     let m;
     try { m = JSON.parse(crudo); } catch (e) { return; }
     if (!m || typeof m !== "object") return;
     const yo = ws.deserializeAttachment() || {};
+    if (this.demasiado(ws)) return;
 
     if (!yo.nombre) {
       if (m.t !== "auth") return;
@@ -606,7 +624,8 @@ export class SalaSocial extends DurableObject {
       const ahora = Date.now();
       this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", ahora, fila.nombre);
       this.sql.exec("UPDATE sesiones SET visto = ? WHERE token_hash = ?", ahora, hash);
-      const admin = !!fila.admin && !!this.env.ADMIN_CLAVE;
+      // Sigue siendo administrador solo si la clave de administrador no cambió desde que entró.
+      const admin = !!this.env.ADMIN_CLAVE && String(fila.admin) === await this.marcaAdmin();
       ws.serializeAttachment({ nombre: fila.nombre, ses: hash, ip: yo.ip, admin });
       // Solo los chats donde está esta persona: el general y sus privados.
       // Sin los mensajes de los chats que esta persona borró para sí.
@@ -680,6 +699,9 @@ export class SalaSocial extends DurableObject {
     }
 
     if (m.t === "escribiendo") {
+      const ahoraE = Date.now();
+      if (ahoraE - (this.ultimoEscribiendo.get(yo.nombre) || 0) < 1000) return;
+      this.ultimoEscribiendo.set(yo.nombre, ahoraE);
       const sala = m.sala === undefined ? "general" : m.sala;
       if (!this.salaPermitida(sala, yo.nombre)) return;
       this.enviarASala(sala, { t: "escribiendo", n: yo.nombre, sala }, ws);
@@ -828,7 +850,7 @@ export class SalaSocial extends DurableObject {
         this.enviar(ws, { t: "error", e: "admin_clave", quedan: Math.max(0, Math.min(quedan, ADMIN_FALLOS_MAX - generales.c - 1)) });
         return;
       }
-      this.sql.exec("UPDATE sesiones SET admin = 1 WHERE token_hash = ?", yo.ses || "");
+      this.sql.exec("UPDATE sesiones SET admin = ? WHERE token_hash = ?", await this.marcaAdmin(), yo.ses || "");
       ws.serializeAttachment({ ...yo, admin: true });
       this.responderAdmin(ws, { t: "admin", activo: true });
       return;

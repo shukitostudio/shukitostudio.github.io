@@ -97,6 +97,7 @@
   var traducciones = {};      // id del mensaje -> {a: 'es' | 'en', texto}
   var verTraduccion = {};     // id -> true si se está mostrando la traducción
   var traduciendo = {};       // id -> true mientras se espera la traducción
+  var errorPendiente = '';    // aviso de sesión terminada mientras el chat estaba cerrado
   var datosAdmin = null;      // {chats: [{sala, miembros, cuantos, ultimo}], clavePropia}
   var silencios = { sala: {}, persona: {} }; // lo que silencié (se guarda en el servidor)
   var CLAVE_AVISOS = 'shukito-social-avisos';
@@ -175,7 +176,8 @@
     raiz.hidden = false;
     document.documentElement.classList.add('social-abierto');
     history.pushState({ social: 1 }, '');
-    if (sesion) { mostrarChat(); conectar(); marcarLeido(); actualizarAsterisco(); } else { mostrarEntrar(); }
+    if (sesion) { mostrarChat(); conectar(); marcarLeido(); actualizarAsterisco(); }
+    else { mostrarEntrar(errorPendiente); errorPendiente = ''; }
   }
   function cerrar(desdeAtras) {
     if (!abierto) return;
@@ -186,6 +188,9 @@
     cancelarEstado();
     cerrarPanel(false);
     cerrarMenuChat(false);
+    cancelarGrabacion();   // apaga el micrófono si estaba grabando
+    cerrarVentanaMedio();
+    cerrarVisor();
     raiz.hidden = true;
     document.documentElement.classList.remove('social-abierto');
     // La conexión sigue abierta: así llegan los avisos de mensajes nuevos mientras la página está abierta.
@@ -331,7 +336,8 @@
     salaActual = GENERAL;
     lista.textContent = '';
     actualizarAsterisco();
-    if (abierto) mostrarEntrar(error);
+    // Si el chat está cerrado, el aviso se muestra al abrirlo.
+    if (abierto) mostrarEntrar(error); else errorPendiente = error || '';
   }
 
   /* ---------- Barra de perfil ---------- */
