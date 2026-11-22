@@ -68,6 +68,10 @@
   var botonContactos = $('social-boton-contactos');
   var panelChats = $('social-panel-chats');
   var panelContactos = $('social-panel-contactos');
+  var panelAdmin = $('social-panel-admin');
+  var ventanaAdmin = $('social-ventana-admin');
+  var paneles = { chats: panelChats, contactos: panelContactos, admin: panelAdmin };
+  var botonesPanel = { chats: botonChats, contactos: botonContactos };
 
   boton.hidden = false;
 
@@ -87,6 +91,8 @@
   var modo = 'nuevo';         // 'nuevo' (crear usuario) o 'entrar' (ya tengo usuario)
   var avatarElegido = 'e:0';  // en el registro
   var avatarNuevo = null;     // en la ventana de cambiar avatar
+  var esAdmin = false;        // esta sesión entró con la clave de administrador
+  var datosAdmin = null;      // {chats: [{sala, miembros, cuantos, ultimo}], clavePropia}
 
   /* ---------- Salas ---------- */
   function minus(n) { return String(n || '').toLowerCase(); }
@@ -163,6 +169,7 @@
     abierto = false;
     cerrarMenu(false);
     cerrarVentanaAvatar();
+    cerrarVentanaAdmin();
     cancelarEstado();
     cerrarPanel(false);
     raiz.hidden = true;
@@ -178,6 +185,7 @@
     if (e.key !== 'Escape') return;
     if (!priv.hidden) cerrarPrivacidad();
     else if (!ventanaAvatar.hidden) cerrarVentanaAvatar();
+    else if (!ventanaAdmin.hidden) cerrarVentanaAdmin();
     else if (!menu.hidden) cerrarMenu(true);
     else if (!$('social-estado-form').hidden) cancelarEstado();
     else if (panel) cerrarPanel(true);
@@ -281,9 +289,12 @@
     desconectar();
     cerrarMenu(false);
     cerrarVentanaAvatar();
+    cerrarVentanaAdmin();
     cancelarEstado();
     cerrarPanel(false);
     chats = {}; lecturas = {}; usuarios = []; pendientes = {}; perfiles = {};
+    esAdmin = false; datosAdmin = null;
+    pintarAdmin();
     salaActual = GENERAL;
     lista.textContent = '';
     actualizarAsterisco();
@@ -417,27 +428,31 @@
     cerrarMenu(false);
     cancelarEstado();
     panel = cual;
-    panelChats.hidden = cual !== 'chats';
-    panelContactos.hidden = cual !== 'contactos';
-    botonChats.setAttribute('aria-expanded', cual === 'chats' ? 'true' : 'false');
-    botonContactos.setAttribute('aria-expanded', cual === 'contactos' ? 'true' : 'false');
-    botonChats.classList.toggle('activo', cual === 'chats');
-    botonContactos.classList.toggle('activo', cual === 'contactos');
-    if (cual === 'chats') pintarListaChats(); else pintarListaContactos();
-    var primero = (cual === 'chats' ? panelChats : panelContactos).querySelector('button');
+    for (var p in paneles) paneles[p].hidden = p !== cual;
+    for (var b in botonesPanel) {
+      botonesPanel[b].setAttribute('aria-expanded', b === cual ? 'true' : 'false');
+      botonesPanel[b].classList.toggle('activo', b === cual);
+    }
+    refrescarListas();
+    if (cual === 'admin') {
+      $('social-admin-aviso').textContent = '';
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_datos' }));
+      $('social-admin-cerrar').focus();
+      return;
+    }
+    var primero = paneles[cual].querySelector('button');
     if (primero) primero.focus();
   }
   function cerrarPanel(devolverFoco) {
     if (!panel) return;
     var antes = panel;
     panel = null;
-    panelChats.hidden = true;
-    panelContactos.hidden = true;
-    botonChats.setAttribute('aria-expanded', 'false');
-    botonContactos.setAttribute('aria-expanded', 'false');
-    botonChats.classList.remove('activo');
-    botonContactos.classList.remove('activo');
-    if (devolverFoco) (antes === 'chats' ? botonChats : botonContactos).focus();
+    for (var p in paneles) paneles[p].hidden = true;
+    for (var b in botonesPanel) {
+      botonesPanel[b].setAttribute('aria-expanded', 'false');
+      botonesPanel[b].classList.remove('activo');
+    }
+    if (devolverFoco) (botonesPanel[antes] || botonMenu).focus();
     marcarLeido();
   }
   botonChats.addEventListener('click', function () { if (panel === 'chats') cerrarPanel(true); else abrirPanel('chats'); });
@@ -598,6 +613,156 @@
   function refrescarListas() {
     if (panel === 'chats') pintarListaChats();
     else if (panel === 'contactos') pintarListaContactos();
+    else if (panel === 'admin') pintarPanelAdmin();
+  }
+
+  /* ---------- Administrador ---------- */
+  function pintarAdmin() {
+    $('social-insignia-admin').hidden = !esAdmin;
+    $('social-op-admin').textContent = t(esAdmin ? 'socialAdminPanel' : 'socialAdminEntrarMenu');
+    $('social-op-admin').setAttribute('data-i', esAdmin ? 'socialAdminPanel' : 'socialAdminEntrarMenu');
+    $('social-op-admin-salir').hidden = !esAdmin;
+    if (!esAdmin && panel === 'admin') cerrarPanel(false);
+  }
+
+  function abrirVentanaAdmin() {
+    cerrarMenu(false);
+    if (!ws || ws.readyState !== 1) return;
+    $('social-admin-clave').value = '';
+    $('social-admin-error').textContent = '';
+    ventanaAdmin.hidden = false;
+    $('social-admin-clave').focus();
+  }
+  function cerrarVentanaAdmin() {
+    if (ventanaAdmin.hidden) return;
+    ventanaAdmin.hidden = true;
+    $('social-admin-clave').value = '';
+    if (abierto && !barraPerfil.hidden) botonMenu.focus();
+  }
+  $('social-op-admin').addEventListener('click', function () {
+    if (esAdmin) { cerrarMenu(false); abrirPanel('admin'); } else abrirVentanaAdmin();
+  });
+  $('social-op-admin-salir').addEventListener('click', function () {
+    cerrarMenu(false);
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_salir' }));
+  });
+  $('social-admin-cancelar').addEventListener('click', cerrarVentanaAdmin);
+  ventanaAdmin.addEventListener('click', function (e) { if (e.target === ventanaAdmin) cerrarVentanaAdmin(); });
+  $('social-form-admin').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var clave = $('social-admin-clave').value;
+    if (!clave) { $('social-admin-clave').focus(); return; }
+    if (!ws || ws.readyState !== 1) { $('social-admin-error').textContent = t('socialErrRed'); return; }
+    $('social-admin-error').textContent = '';
+    ws.send(JSON.stringify({ t: 'admin_entrar', clave: clave }));
+  });
+  $('social-admin-cerrar').addEventListener('click', function () { cerrarPanel(true); });
+
+  function avisoAdmin(texto, esError) {
+    var a = $('social-admin-aviso');
+    a.textContent = texto || '';
+    a.classList.toggle('es-error', !!esError);
+  }
+
+  $('social-admin-form-clave').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var nueva = $('social-admin-clave-nueva').value;
+    if (nueva.length < 6) { avisoAdmin(t('socialAdminErrClaveCorta'), true); $('social-admin-clave-nueva').focus(); return; }
+    if (!window.confirm(t('socialAdminClaveConfirmar', { c: nueva }))) return;
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_clave', clave: nueva }));
+  });
+
+  function nombreVisible(minusculas) {
+    var p = perfilDe(minusculas);
+    return p ? p.n : minusculas;
+  }
+
+  function pintarPanelAdmin() {
+    if (!esAdmin) return;
+    var estadoClave = $('social-admin-clave-estado');
+    estadoClave.textContent = !datosAdmin ? '' : t(datosAdmin.clavePropia ? 'socialAdminClavePropia' : 'socialAdminClaveCloudflare');
+
+    // Usuarios: todos menos yo, con botón para sacarlos.
+    var ulU = $('social-admin-usuarios');
+    ulU.textContent = '';
+    var otros = Object.keys(perfiles).filter(function (n) { return n !== yoMinus(); }).sort();
+    if (!otros.length) {
+      var v = document.createElement('li');
+      v.className = 'social-lista-vacia';
+      v.textContent = t('socialSinContactos');
+      ulU.appendChild(v);
+    }
+    otros.forEach(function (n) {
+      var p = perfiles[n];
+      ulU.appendChild(filaAdmin(null, n, p.n, enLinea(n) ? t('socialEnLineaAhora') : t('socialDesconectado'),
+        t('socialAdminSacar'), t('socialAdminSacarEtiqueta', { n: p.n }), function () {
+          if (!window.confirm(t('socialAdminSacarConfirmar', { n: p.n }))) return;
+          if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_sacar', n: p.n }));
+        }, enLinea(n)));
+    });
+
+    // Chats con mensajes. De los privados solo se ve quiénes y cuántos mensajes.
+    var ulC = $('social-admin-chats');
+    ulC.textContent = '';
+    var lista3 = datosAdmin ? datosAdmin.chats : [];
+    if (!lista3.length) {
+      var v2 = document.createElement('li');
+      v2.className = 'social-lista-vacia';
+      v2.textContent = t('socialAdminSinChats');
+      ulC.appendChild(v2);
+    }
+    lista3.forEach(function (c) {
+      var titulo = c.sala === GENERAL ? t('socialGeneral')
+        : c.miembros ? t('socialAdminChatDe', { a: nombreVisible(c.miembros[0]), b: nombreVisible(c.miembros[1]) }) : c.sala;
+      var detalle = t(c.cuantos === 1 ? 'socialAdminMensajes1' : 'socialAdminMensajes', { n: c.cuantos }) + ' · ' + hora(c.ultimo);
+      ulC.appendChild(filaAdmin(c.sala, null, titulo, detalle, t('socialAdminBorrar'), t('socialAdminBorrarChatEtiqueta', { c: titulo }), function () {
+        if (!window.confirm(t('socialAdminBorrarChatConfirmar', { c: titulo }))) return;
+        if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_borrar_chat', sala: c.sala }));
+      }));
+    });
+  }
+
+  function filaAdmin(sala, nombreMinus, titulo, detalle, textoBoton, etiquetaBoton, alTocar, punto) {
+    var li = document.createElement('li');
+    li.className = 'social-admin-fila';
+    var cajaAv = document.createElement('span');
+    cajaAv.className = 'social-item-avatar';
+    var av = document.createElement('span');
+    av.className = 'social-avatar';
+    av.setAttribute('aria-hidden', 'true');
+    if (sala === GENERAL) pintarAvatarSala(av, GENERAL);
+    else if (nombreMinus) { var p = perfilDe(nombreMinus); pintarAvatar(av, p && p.avatar, titulo); }
+    else { av.textContent = '🔒'; av.style.background = '#5d6676'; }
+    cajaAv.appendChild(av);
+    if (punto !== undefined) {
+      var pt = document.createElement('span');
+      pt.className = 'social-punto' + (punto ? ' si' : '');
+      cajaAv.appendChild(pt);
+    }
+    li.appendChild(cajaAv);
+    var textos = document.createElement('span');
+    textos.className = 'social-item-textos';
+    var a = document.createElement('strong');
+    a.textContent = titulo;
+    var d = document.createElement('span');
+    d.className = 'social-item-abajo';
+    d.textContent = detalle;
+    textos.appendChild(a);
+    textos.appendChild(d);
+    li.appendChild(textos);
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'social-boton peligro chico';
+    b.textContent = textoBoton;
+    b.setAttribute('aria-label', etiquetaBoton);
+    b.addEventListener('click', alTocar);
+    li.appendChild(b);
+    return li;
+  }
+
+  function borrarMensaje(id) {
+    if (!esAdmin || !window.confirm(t('socialAdminBorrarMsgConfirmar'))) return;
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_borrar_msg', id: id }));
   }
 
   /* ---------- Conexión ---------- */
@@ -660,6 +825,8 @@
       datosSala(GENERAL);
       if (!chats[salaActual]) salaActual = GENERAL;
       pendientes = {};
+      esAdmin = !!m.admin;
+      pintarAdmin();
       pintarPerfil();
       pintarCabeceraSala();
       pintarTodo();
@@ -670,7 +837,41 @@
       marcarLeido();
       actualizarAsterisco();
     } else if (m.t === 'sesion_invalida') {
-      terminarSesion(t(m.motivo === 'cuenta_borrada' ? 'socialCuentaBorrada' : 'socialErrSesion'));
+      if (m.motivo === 'sacado') { quitar(CLAVE_NOMBRE); $('social-nombre').value = ''; modo = 'nuevo'; }
+      terminarSesion(t(m.motivo === 'cuenta_borrada' ? 'socialCuentaBorrada' : m.motivo === 'sacado' ? 'socialSacado' : 'socialErrSesion'));
+    } else if (m.t === 'admin') {
+      esAdmin = !!m.activo;
+      pintarAdmin();
+      pintarTodo();
+      if (esAdmin) { cerrarVentanaAdmin(); abrirPanel('admin'); avisoAdmin(t('socialAdminBienvenida')); }
+      else mostrarAviso(t('socialAdminFuera'));
+    } else if (m.t === 'admin_datos') {
+      datosAdmin = { chats: m.chats || [], clavePropia: !!m.clavePropia };
+      if (panel === 'admin') pintarPanelAdmin();
+    } else if (m.t === 'admin_ok') {
+      if (m.accion === 'clave') { $('social-admin-clave-nueva').value = ''; avisoAdmin(t('socialAdminClaveCambiada')); }
+      else if (m.accion === 'sacar') avisoAdmin(t('socialAdminSacadoOk', { n: m.n }));
+      else if (m.accion === 'chat') avisoAdmin(t('socialAdminChatBorradoOk'));
+      else if (m.accion === 'mensaje') mostrarAviso(t('socialAdminMsgBorradoOk'));
+    } else if (m.t === 'borrado') {
+      var cb = chats[m.sala];
+      if (cb) cb.mensajes = cb.mensajes.filter(function (x) { return x.id !== m.id; });
+      if (m.sala === salaActual) {
+        var filaB = lista.querySelector('.social-fila[data-id="' + Number(m.id) + '"]');
+        if (filaB) filaB.remove();
+        if (!datosSala(salaActual).mensajes.length) pintarTodo();
+      }
+      refrescarListas();
+      actualizarAsterisco();
+    } else if (m.t === 'chat_borrado') {
+      if (m.sala === GENERAL) datosSala(GENERAL).mensajes = [];
+      else { delete chats[m.sala]; delete lecturas[m.sala]; }
+      if (m.sala === salaActual) {
+        if (m.sala === GENERAL) pintarTodo(); else abrirSala(GENERAL);
+        if (!esAdmin) mostrarAviso(t('socialChatBorradoAdmin'));
+      }
+      refrescarListas();
+      actualizarAsterisco();
     } else if (m.t === 'estado') {
       usuarios = m.usuarios || [];
       var cuantos = usuarios.filter(function (u) { return u.enLinea; }).length;
@@ -735,6 +936,16 @@
       mostrarAviso(m.e === 'rapido' ? t('socialErrRapido') : m.e === 'largo' ? t('socialErrLargo')
         : m.e === 'estado_largo' ? t('socialErrEstado') : m.e === 'avatar' ? t('socialErrFoto')
         : m.e === 'sala' ? t('socialErrSala') : '');
+      // Errores del administrador
+      var minutosA = Math.max(1, Math.ceil((m.espera || 600) / 60));
+      if (m.e === 'admin_clave') $('social-admin-error').textContent = t('socialAdminErrClave', { n: m.quedan });
+      else if (m.e === 'admin_bloqueado') $('social-admin-error').textContent = t('socialErrBloqueado', { m: minutosA });
+      else if (m.e === 'sin_admin') $('social-admin-error').textContent = t('socialAdminErrSinClave');
+      else if (m.e === 'clave_corta') avisoAdmin(t('socialAdminErrClaveCorta'), true);
+      else if (m.e === 'no_a_ti') avisoAdmin(t('socialAdminErrATi'), true);
+      else if (m.e === 'no_existe') { avisoAdmin(t('socialAdminErrNoExiste'), true); if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_datos' })); }
+      else if (m.e === 'no_admin') { esAdmin = false; pintarAdmin(); pintarTodo(); }
+      if (m.e === 'admin_clave' || m.e === 'admin_bloqueado') { $('social-admin-clave').value = ''; $('social-admin-clave').focus(); }
     }
   }
 
@@ -820,6 +1031,17 @@
     var cerca = lista.scrollHeight - lista.scrollTop - lista.clientHeight < 120;
     var fila = crearBurbuja(m.nombre, m.texto, m.ts, mio, !mio && salaActual === GENERAL);
     fila.setAttribute('data-id', m.id);
+    if (esAdmin) {
+      // Papelera del administrador en cada mensaje guardado.
+      var papelera = document.createElement('button');
+      papelera.type = 'button';
+      papelera.className = 'social-papelera';
+      papelera.setAttribute('aria-label', t('socialAdminBorrarMsg'));
+      papelera.title = t('socialAdminBorrarMsg');
+      papelera.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      papelera.addEventListener('click', function () { borrarMensaje(m.id); });
+      fila.querySelector('.social-pie').insertBefore(papelera, fila.querySelector('.social-pie').firstChild);
+    }
     var primerPendiente = lista.querySelector('.social-fila.pendiente');
     lista.insertBefore(fila, primerPendiente);
     if (mio) ponerMarca(fila, m.id);
@@ -928,6 +1150,7 @@
     var etiqueta = $('social-boton-entrar').firstElementChild;
     if (!$('social-boton-entrar').disabled) etiqueta.textContent = t(modo === 'nuevo' ? 'socialCrear' : 'socialEntrar');
     if (!abierto) return;
+    pintarAdmin();
     if (sesion && !chat.hidden) { pintarPerfil(); pintarCabeceraSala(); actualizarAsterisco(); }
     if (sesion && !chat.hidden && ws && ws.readyState === 1) {
       pintarTodo(); refrescarListas(); pintarEscribiendo();

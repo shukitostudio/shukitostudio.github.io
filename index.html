@@ -183,7 +183,10 @@
           <span id="social-mi-avatar-img" class="social-avatar grande" aria-hidden="true"></span>
         </button>
         <div class="social-perfil-texto">
-          <strong id="social-mi-nombre" class="social-mi-nombre"></strong>
+          <span class="social-nombre-fila">
+            <strong id="social-mi-nombre" class="social-mi-nombre"></strong>
+            <span id="social-insignia-admin" class="social-insignia" data-i="socialAdminInsignia" hidden></span>
+          </span>
           <button type="button" id="social-mi-estado" class="social-mi-estado" data-i-label="socialCambiarEstado"></button>
           <form id="social-estado-form" class="social-estado-form" autocomplete="off" hidden>
             <input id="social-estado-caja" type="text" maxlength="60" enterkeyhint="done" data-i-ph="socialEstadoPista" data-i-label="socialCambiarEstado">
@@ -196,6 +199,8 @@
           <div id="social-menu" class="social-menu" role="menu" hidden>
             <button type="button" role="menuitem" id="social-op-avatar" data-i="socialCambiarAvatar"></button>
             <button type="button" role="menuitem" id="social-op-estado" data-i="socialCambiarEstado"></button>
+            <button type="button" role="menuitem" id="social-op-admin" data-i="socialAdminEntrarMenu"></button>
+            <button type="button" role="menuitem" id="social-op-admin-salir" data-i="socialAdminSalir" hidden></button>
             <button type="button" role="menuitem" id="social-op-salir" data-i="socialSalir"></button>
             <button type="button" role="menuitem" id="social-op-borrar" class="peligro" data-i="socialBorrarCuenta"></button>
           </div>
@@ -244,6 +249,23 @@
         </div>
       </div>
 
+      <!-- Entrar como administrador -->
+      <div id="social-ventana-admin" class="social-ventana" role="dialog" aria-modal="true" aria-labelledby="social-ventana-admin-titulo" hidden>
+        <form id="social-form-admin" class="social-ventana-caja" autocomplete="off" novalidate>
+          <h3 id="social-ventana-admin-titulo" data-i="socialAdminTitulo"></h3>
+          <p class="social-nota" data-i="socialAdminExplica"></p>
+          <label class="social-campo">
+            <span data-i="socialAdminClave"></span>
+            <input id="social-admin-clave" type="password" maxlength="128" autocomplete="off" required>
+          </label>
+          <p id="social-admin-error" class="social-error" role="alert"></p>
+          <div class="social-ventana-botones">
+            <button type="button" id="social-admin-cancelar" class="social-boton secundario"><span data-i="socialCancelar"></span></button>
+            <button type="submit" id="social-admin-entrar" class="social-boton"><span data-i="socialEntrar"></span></button>
+          </div>
+        </form>
+      </div>
+
       <!-- Chat -->
       <div id="social-chat" class="social-chat" hidden>
         <!-- Botones de chats y contactos, y el chat abierto -->
@@ -288,6 +310,35 @@
             <h3 id="social-panel-contactos-titulo" class="social-panel-titulo" data-i="socialContactos"></h3>
             <ul id="social-lista-contactos" class="social-lista"></ul>
           </section>
+
+          <!-- Panel de administrador (solo con la clave de administrador) -->
+          <section id="social-panel-admin" class="social-panel social-panel-admin" aria-labelledby="social-panel-admin-titulo" hidden>
+            <div class="social-admin-cabecera">
+              <h3 id="social-panel-admin-titulo" class="social-panel-titulo" data-i="socialAdminPanel"></h3>
+              <button type="button" id="social-admin-cerrar" class="social-icono" data-i-label="socialCerrar">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+            <p id="social-admin-aviso" class="social-admin-aviso" role="status"></p>
+
+            <h4 class="social-admin-subtitulo" data-i="socialAdminClaveGrupo"></h4>
+            <form id="social-admin-form-clave" class="social-admin-bloque" autocomplete="off" novalidate>
+              <p id="social-admin-clave-estado" class="social-nota"></p>
+              <label class="social-campo">
+                <span data-i="socialAdminClaveNueva"></span>
+                <input id="social-admin-clave-nueva" type="text" minlength="6" maxlength="64" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+              </label>
+              <p class="social-nota" data-i="socialAdminClaveNota"></p>
+              <button type="submit" class="social-boton"><span data-i="socialAdminClaveGuardar"></span></button>
+            </form>
+
+            <h4 class="social-admin-subtitulo" data-i="socialAdminUsuarios"></h4>
+            <ul id="social-admin-usuarios" class="social-lista"></ul>
+
+            <h4 class="social-admin-subtitulo" data-i="socialAdminChats"></h4>
+            <p class="social-nota social-admin-bloque" data-i="socialAdminChatsNota"></p>
+            <ul id="social-admin-chats" class="social-lista"></ul>
+          </section>
         </div>
       </div>
     </div>
@@ -302,6 +353,7 @@
         <li data-i="priv2"></li>
         <li data-i="priv3"></li>
         <li data-i="priv4"></li>
+        <li data-i="priv6"></li>
         <li data-i="priv5"></li>
       </ul>
       <button type="button" class="btn-madera btn-chico" id="priv-cerrar"><span data-i="privCerrar"></span></button>

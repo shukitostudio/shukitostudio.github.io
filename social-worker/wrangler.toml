@@ -6,6 +6,10 @@ compatibility_date = "2025-09-01"
 
 # La clave NO va aquí. Se guarda como secreto de Cloudflare con:
 #   npx wrangler secret put CLAVE
+# (Después, la clave del grupo se puede cambiar desde el panel de administrador de la página.)
+#
+# La clave de administrador tampoco va aquí. Es un secreto aparte, larga (12 caracteres o más):
+#   npx wrangler secret put ADMIN_CLAVE
 
 [vars]
 # Horas que duran los mensajes antes de borrarse solos.
