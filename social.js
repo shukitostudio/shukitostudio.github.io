@@ -69,6 +69,8 @@
   var panelChats = $('social-panel-chats');
   var panelContactos = $('social-panel-contactos');
   var panelAdmin = $('social-panel-admin');
+  var menuChat = $('social-menu-chat');
+  var botonSala = $('social-sala-boton');
   var ventanaAdmin = $('social-ventana-admin');
   var paneles = { chats: panelChats, contactos: panelContactos, admin: panelAdmin };
   var botonesPanel = { chats: botonChats, contactos: botonContactos };
@@ -93,6 +95,14 @@
   var avatarNuevo = null;     // en la ventana de cambiar avatar
   var esAdmin = false;        // esta sesión entró con la clave de administrador
   var datosAdmin = null;      // {chats: [{sala, miembros, cuantos, ultimo}], clavePropia}
+  var silencios = { sala: {}, persona: {} }; // lo que silencié (se guarda en el servidor)
+  var CLAVE_AVISOS = 'shukito-social-avisos';
+  var avisos = (function () {     // ajustes de este teléfono: sonido y notificaciones del navegador
+    try { var a = JSON.parse(leer(CLAVE_AVISOS) || 'null'); if (a) return { sonido: a.sonido !== false, notif: !!a.notif }; } catch (e) { /* nada */ }
+    return { sonido: true, notif: false };
+  })();
+  var ultimoSonido = 0;
+  var audio = null;
 
   /* ---------- Salas ---------- */
   function minus(n) { return String(n || '').toLowerCase(); }
@@ -162,7 +172,7 @@
     raiz.hidden = false;
     document.documentElement.classList.add('social-abierto');
     history.pushState({ social: 1 }, '');
-    if (sesion) { mostrarChat(); conectar(); } else { mostrarEntrar(); }
+    if (sesion) { mostrarChat(); conectar(); marcarLeido(); actualizarAsterisco(); } else { mostrarEntrar(); }
   }
   function cerrar(desdeAtras) {
     if (!abierto) return;
@@ -172,9 +182,11 @@
     cerrarVentanaAdmin();
     cancelarEstado();
     cerrarPanel(false);
+    cerrarMenuChat(false);
     raiz.hidden = true;
     document.documentElement.classList.remove('social-abierto');
-    desconectar();
+    // La conexión sigue abierta: así llegan los avisos de mensajes nuevos mientras la página está abierta.
+    actualizarAsterisco();
     if (!desdeAtras && history.state && history.state.social) history.back();
     boton.focus();
   }
@@ -187,6 +199,7 @@
     else if (!ventanaAvatar.hidden) cerrarVentanaAvatar();
     else if (!ventanaAdmin.hidden) cerrarVentanaAdmin();
     else if (!menu.hidden) cerrarMenu(true);
+    else if (!menuChat.hidden) cerrarMenuChat(true);
     else if (!$('social-estado-form').hidden) cancelarEstado();
     else if (panel) cerrarPanel(true);
     else if (abierto) cerrar(false);
@@ -209,7 +222,14 @@
     barraPerfil.hidden = false;
     pintarPerfil();
     pintarCabeceraSala();
-    estadoTxt.textContent = t('socialConectando');
+    // Si ya estaba conectado (con el chat cerrado), la pantalla ya tiene todo: solo hay que dibujarlo.
+    if (ws && ws.readyState === 1) {
+      estadoTxt.textContent = t('socialEnLineaCuenta', { n: usuarios.filter(function (u) { return u.enLinea; }).length });
+      pintarTodo();
+    } else {
+      estadoTxt.textContent = t('socialConectando');
+    }
+    ajustarCaja();
   }
 
   /* ---------- Crear usuario o entrar ---------- */
@@ -294,6 +314,8 @@
     cerrarPanel(false);
     chats = {}; lecturas = {}; usuarios = []; pendientes = {}; perfiles = {};
     esAdmin = false; datosAdmin = null;
+    silencios = { sala: {}, persona: {} };
+    cerrarMenuChat(false);
     pintarAdmin();
     salaActual = GENERAL;
     lista.textContent = '';
@@ -479,6 +501,9 @@
     if (!sesion) return;
     pintarAvatarSala($('social-sala-avatar'), salaActual);
     $('social-sala-nombre').textContent = nombreSala(salaActual);
+    var callado = salaSilenciada(salaActual);
+    $('social-sala-silencio').hidden = !callado;
+    botonSala.setAttribute('aria-label', t('socialOpcionesChat', { n: nombreSala(salaActual) }) + (callado ? ' (' + t('socialSilenciado') + ')' : ''));
     var detalle = $('social-sala-detalle');
     detalle.classList.remove('en-linea');
     if (salaActual === GENERAL) {
@@ -491,12 +516,25 @@
     }
   }
 
+  // Un chat se está "viendo" si el chat Social está abierto, sin panel encima, en esa sala y con la página visible.
+  function salaVista(sala) {
+    return abierto && !panel && document.visibilityState === 'visible' && sala === salaActual;
+  }
+  function totalNoLeidos() {
+    var n = 0;
+    for (var s in chats) if (!salaVista(s)) n += noLeidos(s);
+    return n;
+  }
+  // Asterisco rojo en el botón Chats y en el botón Social de la portada; número en el título de la pestaña.
   function actualizarAsterisco() {
-    var hay = false;
-    for (var s in chats) if (s !== salaActual || panel) { if (noLeidos(s)) { hay = true; break; } }
-    if (!hay && !panel && noLeidos(salaActual) && document.visibilityState !== 'visible') hay = true;
+    var total = sesion ? totalNoLeidos() : 0;
+    var hay = total > 0;
     $('social-asterisco-chats').hidden = !hay;
+    $('social-asterisco-portada').hidden = !hay;
     botonChats.setAttribute('aria-label', t('socialChats') + (hay ? ' — ' + t('socialHayNoLeidos') : ''));
+    boton.setAttribute('aria-label', t('socialBoton') + (hay ? ' — ' + t('socialHayNoLeidos') : ''));
+    var base = t('metaTitulo');
+    if (base) document.title = (hay ? '(' + total + ') ' : '') + base;
   }
 
   function ultimo(sala) {
@@ -530,6 +568,13 @@
     var nom = document.createElement('strong');
     nom.textContent = titulo;
     arriba.appendChild(nom);
+    if (extra && extra.silencio) {
+      var sil = document.createElement('span');
+      sil.className = 'social-silencio';
+      sil.setAttribute('aria-hidden', 'true');
+      sil.textContent = '🔕';
+      arriba.appendChild(sil);
+    }
     if (extra && extra.hora) {
       var h = document.createElement('time');
       h.textContent = extra.hora;
@@ -576,8 +621,10 @@
       var f = filaLista(sala, null, titulo, linea, {
         hora: u ? hora(u.ts) : '',
         asterisco: cuantos > 0,
+        silencio: salaSilenciada(sala),
         actual: sala === salaActual,
-        etiqueta: titulo + (cuantos ? ', ' + t('socialNoLeidosN', { n: cuantos }) : '') + '. ' + linea
+        etiqueta: titulo + (salaSilenciada(sala) ? ' (' + t('socialSilenciado') + ')' : '')
+          + (cuantos ? ', ' + t('socialNoLeidosN', { n: cuantos }) : '') + '. ' + linea
       });
       f.boton.addEventListener('click', function () { abrirSala(sala); });
       ul.appendChild(f.li);
@@ -602,6 +649,7 @@
       var linea = o.p.estado || (o.conectado ? t('socialEnLineaAhora') : t('socialDesconectado'));
       var f = filaLista(null, o.minus, o.p.n, linea, {
         punto: o.conectado,
+        silencio: !!silencios.persona[o.minus],
         etiqueta: t('socialHablarCon', { n: o.p.n }) + ' (' + (o.conectado ? t('socialEnLineaAhora') : t('socialDesconectado')) + ')'
           + (o.p.estado ? '. ' + o.p.estado : '')
       });
@@ -765,6 +813,173 @@
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_borrar_msg', id: id }));
   }
 
+  /* ---------- Silenciar ---------- */
+  function ponerSilencios(lista4) {
+    silencios = { sala: {}, persona: {} };
+    (lista4 || []).forEach(function (s) {
+      if (s.tipo === 'sala') silencios.sala[s.valor] = true;
+      else if (s.tipo === 'persona') silencios.persona[minus(s.valor)] = true;
+    });
+  }
+  // Un chat está en silencio si lo silencié, o si es privado con alguien que silencié.
+  function salaSilenciada(sala) {
+    if (silencios.sala[sala]) return true;
+    var otro = otroDe(sala);
+    return !!(otro && silencios.persona[otro]);
+  }
+  function mensajeSilenciado(m) {
+    return salaSilenciada(m.sala) || !!silencios.persona[minus(m.nombre)];
+  }
+  function silenciar(tipo, valor, activo) {
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    ws.send(JSON.stringify({ t: 'silenciar', tipo: tipo, valor: valor, activo: activo }));
+  }
+
+  /* ---------- Avisos de mensajes nuevos ---------- */
+  function guardarAvisos() { guardar(CLAVE_AVISOS, JSON.stringify(avisos)); }
+  function puedeNotificar() { return 'Notification' in window; }
+
+  // Dos notas cortas, hechas con el navegador (no hace falta ningún archivo de sonido).
+  function sonar() {
+    try {
+      if (!audio) {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audio = new Ctx();
+      }
+      if (audio.state === 'suspended') audio.resume();
+      var t0 = audio.currentTime + 0.01;
+      [880, 1320].forEach(function (frec, i) {
+        var o = audio.createOscillator(), g = audio.createGain(), ini = t0 + i * 0.12;
+        o.type = 'sine';
+        o.frequency.value = frec;
+        g.gain.setValueAtTime(0.0001, ini);
+        g.gain.exponentialRampToValueAtTime(0.16, ini + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ini + 0.18);
+        o.connect(g);
+        g.connect(audio.destination);
+        o.start(ini);
+        o.stop(ini + 0.2);
+      });
+    } catch (e) { /* sin sonido */ }
+  }
+  // Los navegadores solo dejan sonar después de que la persona toca la página: se prepara al primer toque.
+  document.addEventListener('pointerdown', function preparar() {
+    document.removeEventListener('pointerdown', preparar);
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx && !audio) audio = new Ctx();
+      if (audio && audio.state === 'suspended') audio.resume();
+    } catch (e) { /* nada */ }
+  });
+
+  function avisar(m) {
+    if (!sesion || minus(m.nombre) === yoMinus()) return;
+    if (salaVista(m.sala) || mensajeSilenciado(m)) return;
+    var ahora = Date.now();
+    if (avisos.sonido && ahora - ultimoSonido > 1500) { ultimoSonido = ahora; sonar(); }
+    if (avisos.notif && document.visibilityState !== 'visible' && puedeNotificar() && Notification.permission === 'granted') {
+      try {
+        var titulo = m.sala === GENERAL ? t('socialNotifGeneral', { n: m.nombre }) : m.nombre;
+        var n = new Notification(titulo, { body: Array.from(m.texto).slice(0, 140).join(''), tag: 'shukito-' + m.sala, icon: 'assets/logo.webp' });
+        n.onclick = function () {
+          window.focus();
+          abrir();
+          abrirSala(m.sala);
+          n.close();
+        };
+      } catch (e) { /* algunos teléfonos solo permiten notificaciones con la página instalada (etapa 5) */ }
+    }
+  }
+
+  function pintarAjustesAvisos() {
+    var s = $('social-op-sonido'), n = $('social-op-notif');
+    s.setAttribute('aria-checked', avisos.sonido ? 'true' : 'false');
+    n.hidden = !puedeNotificar();
+    var activas = avisos.notif && puedeNotificar() && Notification.permission === 'granted';
+    n.setAttribute('aria-checked', activas ? 'true' : 'false');
+  }
+  $('social-op-sonido').addEventListener('click', function () {
+    avisos.sonido = !avisos.sonido;
+    guardarAvisos();
+    pintarAjustesAvisos();
+    if (avisos.sonido) sonar(); // para que se escuche cómo suena
+  });
+  $('social-op-notif').addEventListener('click', function () {
+    if (!puedeNotificar()) return;
+    if (avisos.notif && Notification.permission === 'granted') {
+      avisos.notif = false;
+      guardarAvisos();
+      pintarAjustesAvisos();
+      return;
+    }
+    cerrarMenu(true);
+    if (Notification.permission === 'denied') { mostrarAviso(t('socialNotifBloqueadas')); return; }
+    var pedir = Notification.requestPermission(function () { /* navegadores viejos usan esta forma */ });
+    Promise.resolve(pedir).then(function () {
+      avisos.notif = Notification.permission === 'granted';
+      guardarAvisos();
+      pintarAjustesAvisos();
+      mostrarAviso(t(avisos.notif ? 'socialNotifActivadas' : 'socialNotifBloqueadas'));
+    });
+  });
+  pintarAjustesAvisos();
+
+  /* ---------- Menú del chat abierto: silenciar y borrar ---------- */
+  function pintarMenuChat() {
+    var otro = otroDe(salaActual);
+    var opChat = $('social-op-silenciar-chat'), opPersona = $('social-op-silenciar-persona'), opBorrar = $('social-op-borrar-chat');
+    opChat.textContent = t(salaActual === GENERAL ? 'socialSilenciarGeneral' : 'socialSilenciarChat');
+    opChat.setAttribute('aria-checked', silencios.sala[salaActual] ? 'true' : 'false');
+    opPersona.hidden = !otro;
+    if (otro) {
+      opPersona.textContent = t('socialSilenciarPersona', { n: nombreSala(salaActual) });
+      opPersona.setAttribute('aria-checked', silencios.persona[otro] ? 'true' : 'false');
+    }
+    opBorrar.textContent = t('socialBorrarChat');
+  }
+  function abrirMenuChat() {
+    if (!sesion) return;
+    cerrarMenu(false);
+    pintarMenuChat();
+    menuChat.hidden = false;
+    botonSala.setAttribute('aria-expanded', 'true');
+    menuChat.querySelector('button:not([hidden])').focus();
+  }
+  function cerrarMenuChat(devolverFoco) {
+    if (menuChat.hidden) return;
+    menuChat.hidden = true;
+    botonSala.setAttribute('aria-expanded', 'false');
+    if (devolverFoco) botonSala.focus();
+  }
+  botonSala.addEventListener('click', function () { if (menuChat.hidden) abrirMenuChat(); else cerrarMenuChat(true); });
+  document.addEventListener('click', function (e) {
+    if (!menuChat.hidden && !menuChat.contains(e.target) && !botonSala.contains(e.target)) cerrarMenuChat(false);
+  });
+  menuChat.addEventListener('keydown', function (e) {
+    var items = Array.prototype.slice.call(menuChat.querySelectorAll('button:not([hidden])'));
+    var i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Tab') cerrarMenuChat(false);
+  });
+  $('social-op-silenciar-chat').addEventListener('click', function () {
+    silenciar('sala', salaActual, !silencios.sala[salaActual]);
+    cerrarMenuChat(true);
+  });
+  $('social-op-silenciar-persona').addEventListener('click', function () {
+    var otro = otroDe(salaActual);
+    if (otro) silenciar('persona', nombreSala(salaActual), !silencios.persona[otro]);
+    cerrarMenuChat(true);
+  });
+  $('social-op-borrar-chat').addEventListener('click', function () {
+    cerrarMenuChat(true);
+    var nombre = nombreSala(salaActual);
+    if (!window.confirm(t(salaActual === GENERAL ? 'socialBorrarGeneralConfirmar' : 'socialBorrarChatConfirmar', { n: nombre }))) return;
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    ws.send(JSON.stringify({ t: 'ocultar_chat', sala: salaActual }));
+  });
+
   /* ---------- Conexión ---------- */
   function conectar() {
     if (!sesion || (ws && ws.readyState <= 1)) return;
@@ -783,7 +998,7 @@
       clearInterval(latido);
       ws = null;
       if (ev.code === 4001) return; // sesión inválida: ya se mostró el aviso
-      if (abierto && sesion) reconectar();
+      if (sesion) reconectar();
     };
   }
   function reconectar() {
@@ -799,7 +1014,8 @@
   }
   // Al volver a la página en el teléfono, reconectar enseguida.
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && abierto && sesion) { reintento = 0; conectar(); marcarLeido(); }
+    if (document.visibilityState === 'visible' && sesion) { reintento = 0; conectar(); marcarLeido(); }
+    actualizarAsterisco();
   });
 
   /* ---------- Mensajes del servidor ---------- */
@@ -826,6 +1042,7 @@
       if (!chats[salaActual]) salaActual = GENERAL;
       pendientes = {};
       esAdmin = !!m.admin;
+      ponerSilencios(m.silencios);
       pintarAdmin();
       pintarPerfil();
       pintarCabeceraSala();
@@ -861,6 +1078,20 @@
         if (filaB) filaB.remove();
         if (!datosSala(salaActual).mensajes.length) pintarTodo();
       }
+      refrescarListas();
+      actualizarAsterisco();
+    } else if (m.t === 'silencios') {
+      ponerSilencios(m.lista);
+      pintarCabeceraSala();
+      pintarMenuChat();
+      refrescarListas();
+    } else if (m.t === 'chat_oculto') {
+      // "Borrar chat" (solo para mí), hecho aquí o en otro teléfono de la misma cuenta.
+      var co = chats[m.sala];
+      if (co) co.mensajes = co.mensajes.filter(function (x) { return x.id > m.hasta; });
+      if (m.hasta) ponerLectura(m.sala, sesion.nombre, m.hasta);
+      if (co && m.sala !== GENERAL && !co.mensajes.length && m.sala !== salaActual) delete chats[m.sala];
+      if (m.sala === salaActual) pintarTodo();
       refrescarListas();
       actualizarAsterisco();
     } else if (m.t === 'chat_borrado') {
@@ -909,6 +1140,7 @@
         agregarBurbuja(mm, true);
         if (minus(mm.nombre) !== yoMinus()) marcarLeido();
       }
+      avisar(mm);
       actualizarAsterisco();
       refrescarListas();
     } else if (m.t === 'leido') {
@@ -1096,7 +1328,10 @@
   function largo(s) { return Array.from(s).length; }
   function ajustarCaja() {
     caja.style.height = 'auto';
-    caja.style.height = Math.min(caja.scrollHeight, 130) + 'px';
+    var borde = caja.offsetHeight - caja.clientHeight; // el borde no cuenta en scrollHeight
+    var alto = caja.scrollHeight + borde;
+    caja.style.height = Math.min(alto, 130) + 'px';
+    caja.style.overflowY = alto > 130 ? 'auto' : 'hidden';
     var n = largo(caja.value);
     contador.textContent = n > MAX_LARGO - 80 ? (MAX_LARGO - n) + '' : '';
     contador.classList.toggle('excedido', n > MAX_LARGO);
@@ -1149,14 +1384,19 @@
     selectorCambiar.etiquetas();
     var etiqueta = $('social-boton-entrar').firstElementChild;
     if (!$('social-boton-entrar').disabled) etiqueta.textContent = t(modo === 'nuevo' ? 'socialCrear' : 'socialEntrar');
-    if (!abierto) return;
     pintarAdmin();
-    if (sesion && !chat.hidden) { pintarPerfil(); pintarCabeceraSala(); actualizarAsterisco(); }
+    pintarAjustesAvisos();
+    actualizarAsterisco();
+    if (!abierto) return;
+    if (sesion && !chat.hidden) { pintarPerfil(); pintarCabeceraSala(); }
     if (sesion && !chat.hidden && ws && ws.readyState === 1) {
       pintarTodo(); refrescarListas(); pintarEscribiendo();
       estadoTxt.textContent = t('socialEnLineaCuenta', { n: usuarios.filter(function (u) { return u.enLinea; }).length });
     } else if (!chat.hidden) estadoTxt.textContent = t('socialConectando');
   });
+
+  // Con sesión guardada, conectar enseguida (aunque el chat esté cerrado) para avisar de mensajes nuevos.
+  if (sesion) conectar();
 
   // Abrir directo con la dirección .../#social
   if (location.hash === '#social') { history.replaceState(null, '', location.pathname + location.search); abrir(); }

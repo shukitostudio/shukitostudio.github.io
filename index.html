@@ -52,6 +52,7 @@
           <button type="button" id="btn-social" class="btn-madera btn-chico btn-social" hidden>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" fill="currentColor"/></svg>
             <span data-i="socialBoton"></span>
+            <span id="social-asterisco-portada" class="social-asterisco-portada" aria-hidden="true" hidden>*</span>
           </button>
         </div>
         <img class="animal zorro" src="assets/zorro.webp" data-alt="zorroAlt" alt="" width="800" height="528">
@@ -199,6 +200,8 @@
           <div id="social-menu" class="social-menu" role="menu" hidden>
             <button type="button" role="menuitem" id="social-op-avatar" data-i="socialCambiarAvatar"></button>
             <button type="button" role="menuitem" id="social-op-estado" data-i="socialCambiarEstado"></button>
+            <button type="button" role="menuitemcheckbox" id="social-op-sonido" class="con-marca" aria-checked="true" data-i="socialOpSonido"></button>
+            <button type="button" role="menuitemcheckbox" id="social-op-notif" class="con-marca" aria-checked="false" data-i="socialOpNotif"></button>
             <button type="button" role="menuitem" id="social-op-admin" data-i="socialAdminEntrarMenu"></button>
             <button type="button" role="menuitem" id="social-op-admin-salir" data-i="socialAdminSalir" hidden></button>
             <button type="button" role="menuitem" id="social-op-salir" data-i="socialSalir"></button>
@@ -276,11 +279,19 @@
             <span id="social-asterisco-chats" class="social-asterisco" aria-hidden="true" hidden>*</span>
           </button>
           <div class="social-sala-actual">
-            <span id="social-sala-avatar" class="social-avatar chico" aria-hidden="true"></span>
-            <span class="social-sala-textos">
-              <strong id="social-sala-nombre"></strong>
-              <span id="social-sala-detalle" class="social-sala-detalle"></span>
-            </span>
+            <button type="button" id="social-sala-boton" class="social-sala-boton" aria-haspopup="menu" aria-expanded="false" aria-controls="social-menu-chat">
+              <span id="social-sala-avatar" class="social-avatar chico" aria-hidden="true"></span>
+              <span class="social-sala-textos">
+                <strong><span id="social-sala-nombre"></span> <span id="social-sala-silencio" class="social-silencio" hidden>🔕</span></strong>
+                <span id="social-sala-detalle" class="social-sala-detalle"></span>
+              </span>
+              <svg class="social-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div id="social-menu-chat" class="social-menu social-menu-chat" role="menu" hidden>
+              <button type="button" role="menuitemcheckbox" id="social-op-silenciar-chat" class="con-marca" aria-checked="false"></button>
+              <button type="button" role="menuitemcheckbox" id="social-op-silenciar-persona" class="con-marca" aria-checked="false"></button>
+              <button type="button" role="menuitem" id="social-op-borrar-chat" class="peligro"></button>
+            </div>
           </div>
           <button type="button" id="social-boton-contactos" class="social-pildora" aria-expanded="false" aria-controls="social-panel-contactos">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 19c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.8a3.4 3.4 0 010 6.4M18 13.8c2 .7 3.2 2.5 3.6 5.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -354,6 +365,7 @@
         <li data-i="priv3"></li>
         <li data-i="priv4"></li>
         <li data-i="priv6"></li>
+        <li data-i="priv7"></li>
         <li data-i="priv5"></li>
       </ul>
       <button type="button" class="btn-madera btn-chico" id="priv-cerrar"><span data-i="privCerrar"></span></button>

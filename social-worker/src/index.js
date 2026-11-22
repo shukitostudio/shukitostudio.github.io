@@ -159,6 +159,13 @@ export class SalaSocial extends DurableObject {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS intentos_admin (ts INTEGER NOT NULL)`);
     // Ajustes que el administrador cambia desde la página (por ejemplo, la clave del grupo, guardada cifrada).
     this.sql.exec(`CREATE TABLE IF NOT EXISTS ajustes (clave TEXT PRIMARY KEY, valor TEXT NOT NULL)`);
+    // Lo que cada persona silenció: un chat ("sala") o a alguien ("persona").
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS silencios (
+      nombre TEXT NOT NULL COLLATE NOCASE, tipo TEXT NOT NULL, valor TEXT NOT NULL COLLATE NOCASE,
+      PRIMARY KEY (nombre, tipo, valor))`);
+    // "Borrar chat" (solo para mí): esa persona deja de ver los mensajes de ese chat hasta el id "hasta".
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS ocultos (
+      nombre TEXT NOT NULL COLLATE NOCASE, sala TEXT NOT NULL, hasta INTEGER NOT NULL, PRIMARY KEY (nombre, sala))`);
     // Responde "pong" a los "ping" del teléfono sin despertar al servidor.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -178,15 +185,22 @@ export class SalaSocial extends DurableObject {
     this.sql.exec("DELETE FROM usuarios WHERE visto < ?", limite);
     this.sql.exec("DELETE FROM sesiones WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
     this.sql.exec("DELETE FROM lecturas WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
+    this.sql.exec("DELETE FROM ocultos WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
+    this.sql.exec("DELETE FROM silencios WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
+    this.sql.exec("DELETE FROM silencios WHERE tipo = 'persona' AND valor NOT IN (SELECT nombre FROM usuarios)");
     // Chats privados de alguien que ya no existe: se borran (así nadie que use ese nombre después los ve).
     const existen = new Set(this.sql.exec("SELECT nombre FROM usuarios").toArray().map((u) => u.nombre.toLowerCase()));
     const salas = this.sql.exec("SELECT DISTINCT sala FROM mensajes WHERE sala <> 'general'").toArray().map((f) => f.sala)
-      .concat(this.sql.exec("SELECT DISTINCT sala FROM lecturas WHERE sala <> 'general'").toArray().map((f) => f.sala));
+      .concat(this.sql.exec("SELECT DISTINCT sala FROM lecturas WHERE sala <> 'general'").toArray().map((f) => f.sala))
+      .concat(this.sql.exec("SELECT DISTINCT sala FROM ocultos WHERE sala <> 'general'").toArray().map((f) => f.sala))
+      .concat(this.sql.exec("SELECT DISTINCT valor AS sala FROM silencios WHERE tipo = 'sala' AND valor <> 'general'").toArray().map((f) => f.sala));
     for (const sala of new Set(salas)) {
       const m = miembros(sala);
       if (m && m.every((n) => existen.has(n))) continue;
       this.sql.exec("DELETE FROM mensajes WHERE sala = ?", sala);
       this.sql.exec("DELETE FROM lecturas WHERE sala = ?", sala);
+      this.sql.exec("DELETE FROM ocultos WHERE sala = ?", sala);
+      this.sql.exec("DELETE FROM silencios WHERE tipo = 'sala' AND valor = ?", sala);
     }
     this.sql.exec("DELETE FROM intentos WHERE ts < ?", ahora - INTENTOS_VENTANA);
   }
@@ -360,6 +374,21 @@ export class SalaSocial extends DurableObject {
     }
   }
 
+  // Envía a todas las conexiones de una persona (su teléfono, su computadora...).
+  enviarAUsuario(nombre, datos) {
+    const texto = JSON.stringify(datos);
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (!a || !a.nombre || a.nombre.toLowerCase() !== nombre.toLowerCase()) continue;
+      try { ws.send(texto); } catch (e) { /* conexión cerrada */ }
+    }
+  }
+
+  silenciosDe(nombre) {
+    return this.sql.exec("SELECT tipo, valor FROM silencios WHERE nombre = ?", nombre).toArray()
+      .map((s) => ({ tipo: s.tipo, valor: s.valor }));
+  }
+
   // Envía solo a quienes están en ese chat (en el general, a todos).
   enviarASala(sala, datos, excepto) {
     const texto = JSON.stringify(datos);
@@ -425,11 +454,15 @@ export class SalaSocial extends DurableObject {
       const admin = !!fila.admin && !!this.env.ADMIN_CLAVE;
       ws.serializeAttachment({ nombre: fila.nombre, ses: hash, ip: yo.ip, admin });
       // Solo los chats donde está esta persona: el general y sus privados.
+      // Sin los mensajes de los chats que esta persona borró para sí.
+      const ocultos = new Map(this.sql.exec("SELECT sala, hasta FROM ocultos WHERE nombre = ?", fila.nombre).toArray()
+        .map((o) => [o.sala, o.hasta]));
       const mensajes = this.sql.exec("SELECT id, sala, nombre, texto, ts FROM mensajes ORDER BY id").toArray()
-        .filter((x) => esMiembro(x.sala, fila.nombre));
+        .filter((x) => esMiembro(x.sala, fila.nombre) && x.id > (ocultos.get(x.sala) || 0));
       const lecturas = this.sql.exec("SELECT nombre, sala, id FROM lecturas").toArray()
         .filter((x) => esMiembro(x.sala, fila.nombre)).map((x) => ({ n: x.nombre, sala: x.sala, id: x.id }));
-      this.enviar(ws, { t: "hola", yo: fila.nombre, mensajes, lecturas, perfiles: this.perfiles(), horas: this.horas(), admin });
+      this.enviar(ws, { t: "hola", yo: fila.nombre, mensajes, lecturas, perfiles: this.perfiles(), horas: this.horas(), admin,
+        silencios: this.silenciosDe(fila.nombre) });
       this.enviarATodos(this.estado());
       await this.programarLimpieza();
       return;
@@ -492,6 +525,34 @@ export class SalaSocial extends DurableObject {
       if (id <= 0) return;
       this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", Date.now(), yo.nombre);
       this.enviarASala(sala, { t: "leido", n: yo.nombre, sala, id: this.marcarLeido(yo.nombre, sala, id) });
+      return;
+    }
+
+    if (m.t === "silenciar") {
+      const tipo = m.tipo === "persona" ? "persona" : m.tipo === "sala" ? "sala" : null;
+      if (!tipo) return;
+      let valor = String(m.valor || "");
+      if (tipo === "sala" && !this.salaPermitida(valor, yo.nombre)) return;
+      if (tipo === "persona") {
+        const u = this.sql.exec("SELECT nombre FROM usuarios WHERE nombre = ?", valor).toArray()[0];
+        if (!u || u.nombre.toLowerCase() === yo.nombre.toLowerCase()) return;
+        valor = u.nombre;
+      }
+      if (m.activo) this.sql.exec("INSERT OR IGNORE INTO silencios (nombre, tipo, valor) VALUES (?, ?, ?)", yo.nombre, tipo, valor);
+      else this.sql.exec("DELETE FROM silencios WHERE nombre = ? AND tipo = ? AND valor = ?", yo.nombre, tipo, valor);
+      this.enviarAUsuario(yo.nombre, { t: "silencios", lista: this.silenciosDe(yo.nombre) });
+      return;
+    }
+
+    if (m.t === "ocultar_chat") {
+      // Borrar chat solo para mí: dejo de ver lo que hay hasta ahora. Lo nuevo sí llega.
+      const sala = String(m.sala || "");
+      if (!this.salaPermitida(sala, yo.nombre)) return;
+      const hasta = this.sql.exec("SELECT COALESCE(MAX(id), 0) AS m FROM mensajes WHERE sala = ?", sala).one().m;
+      this.sql.exec(`INSERT INTO ocultos (nombre, sala, hasta) VALUES (?, ?, ?)
+        ON CONFLICT (nombre, sala) DO UPDATE SET hasta = MAX(hasta, excluded.hasta)`, yo.nombre, sala, hasta);
+      if (hasta > 0) this.enviarASala(sala, { t: "leido", n: yo.nombre, sala, id: this.marcarLeido(yo.nombre, sala, hasta) });
+      this.enviarAUsuario(yo.nombre, { t: "chat_oculto", sala, hasta });
       return;
     }
 

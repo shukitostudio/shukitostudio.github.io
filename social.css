@@ -209,7 +209,32 @@ html[data-tema="dia"] .social-cabecera h2 { color: #c5650f; text-shadow: none; }
 html[data-tema="noche"] .social-asterisco { color: #ff4a3d; }
 .social-pildora .social-asterisco { position: absolute; top: 2px; right: 4px; margin: 0; font-size: 22px; }
 .social-pildora.activo .social-asterisco { color: #fff; }
-.social-sala-actual { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.social-sala-actual { flex: 1; min-width: 0; display: flex; justify-content: center; position: relative; }
+.social-sala-boton {
+  max-width: 100%; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 3px 6px; min-height: 44px;
+  border: 0; border-radius: 10px; background: none; cursor: pointer; font: inherit; color: var(--so-texto); text-align: left;
+}
+.social-sala-boton:hover { background: rgba(127, 140, 160, .14); }
+.social-flecha { width: 16px; height: 16px; flex: none; color: var(--so-tenue); }
+.social-silencio { font-size: 12px; font-weight: normal; }
+.social-menu-chat { right: auto; left: 50%; transform: translateX(-50%); top: calc(100% + 2px); }
+
+/* Opciones con casilla (sonido, notificaciones, silenciar) */
+.social-menu button.con-marca { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.social-menu button.con-marca::after {
+  content: ""; flex: none; width: 18px; height: 18px; border-radius: 5px; border: 2px solid var(--so-tenue);
+}
+.social-menu button.con-marca[aria-checked="true"]::after {
+  border-color: var(--so-acento); background: var(--so-acento);
+  box-shadow: inset 0 0 0 3px var(--so-menu);
+}
+
+/* Asterisco en el botón Social de la portada */
+.btn-social { position: relative; }
+.social-asterisco-portada {
+  position: absolute; top: -2px; right: 4px; color: #ff4a3d; font-size: 30px; font-weight: bold; line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .7);
+}
 .social-avatar.chico { width: 32px; height: 32px; border-radius: 8px; font-size: 19px; }
 .social-avatar.mini { width: 28px; height: 28px; border-radius: 7px; font-size: 17px; flex: none; align-self: flex-end; }
 .social-avatar.es-grupo { box-shadow: none; }
