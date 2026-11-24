@@ -177,6 +177,7 @@
   var vv = window.visualViewport;
   var scrollGuardado = 0;
   var tecladoAbierto = false;
+  var altoCompleto = 0;
   if (esIPhone) document.documentElement.classList.add('social-ios');
 
   function iphoneAntes() {
@@ -193,7 +194,9 @@
     raiz.style.top = Math.round(arriba) + 'px';
     var foco = document.activeElement;
     var escribiendo = !!foco && raiz.contains(foco) && /^(INPUT|TEXTAREA)$/.test(foco.tagName);
-    var teclado = !!(escribiendo && vv && window.innerHeight - vv.height > 120);
+    // Altura "sin teclado": la más grande vista (el iPhone a veces también encoge innerHeight).
+    altoCompleto = Math.max(altoCompleto, window.innerHeight, document.documentElement.clientHeight);
+    var teclado = !!(escribiendo && vv && altoCompleto - vv.height > 120);
     document.documentElement.classList.toggle('social-teclado', teclado);
     // Al salir el teclado, el último mensaje sigue a la vista.
     if (teclado && !tecladoAbierto && !chat.hidden) setTimeout(function () { bajar(true); }, 0);
@@ -219,8 +222,19 @@
     raizDoc.style.scrollBehavior = '';
   }
   if (esIPhone) {
-    var reajustar = function () { setTimeout(iphoneAjustar, 50); setTimeout(iphoneAjustar, 350); };
-    if (vv) { vv.addEventListener('resize', iphoneAjustar); vv.addEventListener('scroll', iphoneAjustar); }
+    // Mientras el teclado sale, cambia o se cierra, se mide en cada cuadro durante ~0,8 s.
+    var seguirHasta = 0, siguiendo = false;
+    var reajustar = function () {
+      seguirHasta = Date.now() + 800;
+      if (siguiendo) return;
+      siguiendo = true;
+      (function paso() {
+        iphoneAjustar();
+        if (Date.now() < seguirHasta && abierto) requestAnimationFrame(paso); else siguiendo = false;
+      })();
+    };
+    window.addEventListener('orientationchange', function () { altoCompleto = 0; });
+    if (vv) { vv.addEventListener('resize', reajustar); vv.addEventListener('scroll', iphoneAjustar); }
     window.addEventListener('resize', iphoneAjustar);
     window.addEventListener('orientationchange', function () { setTimeout(iphoneAjustar, 300); });
     document.addEventListener('focusin', reajustar);

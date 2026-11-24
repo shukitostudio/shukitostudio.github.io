@@ -82,6 +82,13 @@ html.social-ios .social {
   -webkit-backdrop-filter: none; backdrop-filter: none;
   overscroll-behavior: none; touch-action: manipulation;
 }
+/* Debajo del chat, una franja del mismo color tapa cualquier hueco (p. ej. la barra de flechas y
+   engranaje que Safari pone sobre el teclado): nunca se ve la página de atrás. */
+html.social-ios .social::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 100vh;
+  background: var(--so-chat); pointer-events: none;
+}
+html.social-ios.social-abierto, html.social-ios.social-abierto body { background: var(--so-chat); }
 html.social-ios .social-caja { height: 100%; }
 html.social-ios.social-teclado .social-caja { padding-bottom: 0; }
 
