@@ -665,3 +665,114 @@ html.social-teclado .social-muro { padding-top: 6px; padding-bottom: 6px; }
 html.social-teclado .social-muro-foto .social-avatar { width: 40px; height: 40px; border-radius: 11px; font-size: 24px; }
 html.social-teclado .social-muro-foto { padding: 2px; border-radius: 13px; }
 html.social-teclado .social-muro-estado { display: none; }
+
+/* =====================================================================
+   Reacciones 👍 ❤️ 😢 😡
+   ===================================================================== */
+.social-burbuja { position: relative; }
+/* En pantallas táctiles, mantener pulsado no selecciona texto ni abre el menú del teléfono */
+@media (pointer: coarse) {
+  .social-fila[data-id] .social-burbuja { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .social-fila[data-id] .social-burbuja img { -webkit-touch-callout: none; }
+}
+.social-fila.reaccionando .social-burbuja {
+  transform: scale(1.03); transition: transform .15s ease-out;
+  box-shadow: 0 0 0 2px rgba(90, 180, 255, .8), 0 4px 14px rgba(0, 30, 80, .35);
+}
+@media (prefers-reduced-motion: reduce) { .social-fila.reaccionando .social-burbuja { transform: none; } }
+
+/* Pastillas debajo de la burbuja, montadas sobre el borde */
+.social-fila.con-reacciones { margin-bottom: 16px; }
+.social-reacciones {
+  position: absolute; bottom: -20px; left: 8px; z-index: 1; display: flex; gap: 4px; flex-wrap: wrap;
+}
+.mia .social-reacciones { left: auto; right: 8px; }
+.social-reaccion {
+  display: inline-flex; align-items: center; gap: 3px; min-height: 26px; padding: 1px 8px 1px 6px;
+  border-radius: 99px; cursor: pointer; font: inherit; font-size: 13px; font-weight: bold; line-height: 1;
+  color: var(--ae-otra-texto); text-shadow: none;
+  background: var(--ae-otra), var(--so-otra); border: 1px solid var(--ae-otra-borde);
+  box-shadow: 0 1px 3px rgba(0, 15, 40, .35), inset 0 1px 0 rgba(255, 255, 255, .5);
+}
+.social-reaccion-emoji { font-size: 15px; }
+.social-reaccion:hover { filter: brightness(1.08); }
+.social-reaccion.es-mia {
+  color: #fff; background: var(--ae-boton); border-color: rgba(10, 60, 130, .85);
+  box-shadow: 0 0 6px rgba(90, 180, 255, .7), inset 0 1px 0 rgba(255, 255, 255, .75);
+  text-shadow: 0 1px 1px rgba(0, 30, 80, .5);
+}
+
+/* Selector que aparece al mantener pulsado */
+.social-reaccionar {
+  position: absolute; z-index: 6; display: flex; gap: 2px; padding: 5px;
+  border-radius: 99px; border: 1px solid var(--ae-cristal-borde);
+  background: var(--ae-cristal), var(--so-menu);
+  box-shadow: 0 8px 24px rgba(0, 20, 50, .45), inset 0 1px 0 var(--ae-brillo);
+  animation: social-aparecer .16s ease-out;
+}
+.social-reaccionar button {
+  width: 46px; height: 46px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  background: none; cursor: pointer; font-size: 28px; line-height: 1;
+  transition: transform .12s ease-out, background .12s;
+}
+.social-reaccionar button:hover, .social-reaccionar button:focus-visible { transform: scale(1.22) translateY(-3px); background: rgba(120, 180, 255, .2); }
+.social-reaccionar button[aria-checked="true"] {
+  background: radial-gradient(circle at 50% 35%, rgba(150, 210, 255, .65), rgba(60, 150, 240, .35));
+  box-shadow: inset 0 0 0 2px rgba(90, 180, 255, .9);
+}
+@keyframes social-aparecer { from { opacity: 0; transform: translateY(6px) scale(.9); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .social-reaccionar { animation: none; }
+  .social-reaccionar button { transition: none; }
+  .social-reaccionar button:hover, .social-reaccionar button:focus-visible { transform: none; }
+}
+
+/* =====================================================================
+   Menú del clip: galería, cámara y audio
+   ===================================================================== */
+.social-adjuntar-caja { position: relative; flex: none; }
+.social-menu-adjuntar { right: auto; left: 0; top: auto; bottom: calc(100% + 10px); min-width: 210px; }
+.social-menu-adjuntar button { display: flex; align-items: center; gap: 12px; }
+.social-menu-adjuntar svg {
+  width: 30px; height: 30px; flex: none; padding: 5px; border-radius: 50%; color: #fff;
+  background: var(--ae-boton); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7), 0 1px 2px rgba(0, 30, 80, .4);
+}
+.social.en-conversacion .social-menu-adjuntar {
+  background: var(--ae-cristal), var(--so-menu);
+}
+
+/* =====================================================================
+   Enviar foto o video: vista previa, trozo de 15 s y barra de progreso
+   ===================================================================== */
+.social-medio-previa video.social-previa-video { display: block; max-width: 100%; max-height: 45vh; background: #000; }
+.social-trozo { gap: 6px; }
+.social-trozo input[type="range"] { padding: 0; border: 0; background: none; accent-color: #2f8fe8; height: 28px; }
+.social-consejo { margin: 0; }
+
+/* Barra de progreso verde con brillo, como las de Vista */
+.social-barra-progreso {
+  position: relative; height: 16px; border-radius: 8px; overflow: hidden;
+  background: linear-gradient(180deg, #d9dee5, #f4f6f9 50%, #e4e8ee);
+  border: 1px solid rgba(90, 110, 140, .55);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25);
+}
+html[data-tema="noche"] .social-barra-progreso {
+  background: linear-gradient(180deg, #1b2433, #263144 50%, #1d2636); border-color: rgba(140, 180, 230, .35);
+}
+.social-barra-relleno {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 7px;
+  background: linear-gradient(180deg, #c8ffb6 0%, #5fd45a 45%, #2fae2c 55%, #57cf52 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7);
+  transition: width .3s ease-out; overflow: hidden;
+}
+/* Destello que recorre la barra */
+.social-barra-relleno::after {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 60px; left: -60px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .65), transparent);
+  animation: social-destello 1.8s linear infinite;
+}
+@keyframes social-destello { to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) {
+  .social-barra-relleno { transition: none; }
+  .social-barra-relleno::after { animation: none; display: none; }
+}

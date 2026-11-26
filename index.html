@@ -22,7 +22,7 @@
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%238a4a22'/%3E%3Cpath d='M12 14l14 10h12l14-10-3 24-17 14-17-14z' fill='%23f2792b'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="social.css?v=5">
+  <link rel="stylesheet" href="social.css?v=6">
 </head>
 <body>
 
@@ -258,7 +258,17 @@
         <form id="social-form-medio" class="social-ventana-caja" autocomplete="off" novalidate>
           <h3 id="social-ventana-medio-titulo"></h3>
           <div id="social-medio-previa" class="social-medio-previa"></div>
+          <!-- Videos de más de 15 segundos: elegir el trozo -->
+          <label id="social-medio-trozo" class="social-campo social-trozo" hidden>
+            <span data-i="socialVideoElegirTrozo"></span>
+            <input id="social-medio-desde" type="range" min="0" max="0" step="0.5" value="0">
+            <small id="social-medio-trozo-texto" class="social-nota"></small>
+          </label>
+          <div id="social-medio-barra" class="social-barra-progreso" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="social-medio-estado" hidden>
+            <span id="social-medio-barra-relleno" class="social-barra-relleno"></span>
+          </div>
           <p id="social-medio-estado" class="social-nota" role="status"></p>
+          <p id="social-medio-consejo" class="social-nota social-consejo" hidden></p>
           <label class="social-campo">
             <span data-i="socialComentario"></span>
             <input id="social-medio-texto" type="text" maxlength="500" data-i-ph="socialComentarioPista">
@@ -349,10 +359,33 @@
           <div id="social-mensajes" class="social-mensajes" aria-live="polite"></div>
           <div id="social-escribiendo" class="social-escribiendo" aria-live="polite"></div>
           <form id="social-form" class="social-form" autocomplete="off">
-            <button type="button" id="social-adjuntar" class="social-boton-redondo" data-i-label="socialAdjuntar">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5l-7.8 7.8a5 5 0 01-7.1-7.1l8.5-8.5a3.3 3.3 0 014.7 4.7l-8.5 8.5a1.7 1.7 0 01-2.4-2.4l7.8-7.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
+            <!-- Adjuntar: galería, cámara (foto o video) y audio -->
+            <div class="social-adjuntar-caja">
+              <button type="button" id="social-adjuntar" class="social-boton-redondo" aria-haspopup="menu" aria-expanded="false" aria-controls="social-menu-adjuntar" data-i-label="socialAdjuntarMenu">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5l-7.8 7.8a5 5 0 01-7.1-7.1l8.5-8.5a3.3 3.3 0 014.7 4.7l-8.5 8.5a1.7 1.7 0 01-2.4-2.4l7.8-7.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div id="social-menu-adjuntar" class="social-menu social-menu-adjuntar" role="menu" hidden>
+                <button type="button" role="menuitem" id="social-op-galeria">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="2" fill="currentColor"/><path d="M4 18l5-5 4 4 3-3 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                  <span data-i="socialOpGaleria"></span>
+                </button>
+                <button type="button" role="menuitem" id="social-op-camara-foto" class="solo-tactil">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+                  <span data-i="socialOpCamaraFoto"></span>
+                </button>
+                <button type="button" role="menuitem" id="social-op-camara-video" class="solo-tactil">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 10.5l5-3v9l-5-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                  <span data-i="socialOpCamaraVideo"></span>
+                </button>
+                <button type="button" role="menuitem" id="social-op-audio">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                  <span data-i="socialOpAudio"></span>
+                </button>
+              </div>
+            </div>
             <input type="file" id="social-archivo" accept="image/*,video/*" hidden>
+            <input type="file" id="social-camara-foto" accept="image/*" capture="environment" hidden>
+            <input type="file" id="social-camara-video" accept="video/*" capture="environment" hidden>
             <textarea id="social-texto" rows="1" maxlength="500" data-i-ph="socialEscribe" data-i-label="socialEscribe"></textarea>
             <button type="button" id="social-microfono" class="social-boton-redondo" data-i-label="socialGrabarAudio">
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -371,6 +404,14 @@
             <button type="button" id="social-grabando-enviar" class="social-boton chico"><span data-i="socialEnviarAudio"></span></button>
           </div>
           <span id="social-contador" class="social-contador" aria-hidden="true"></span>
+
+          <!-- Reacciones: aparece al mantener pulsado un mensaje -->
+          <div id="social-reaccionar" class="social-reaccionar" role="menu" data-i-label="socialReaccionar" hidden>
+            <button type="button" role="menuitemradio" aria-checked="false" data-e="👍" data-i-label="socialReaccionMeGusta">👍</button>
+            <button type="button" role="menuitemradio" aria-checked="false" data-e="❤️" data-i-label="socialReaccionMeEncanta">❤️</button>
+            <button type="button" role="menuitemradio" aria-checked="false" data-e="😢" data-i-label="socialReaccionTriste">😢</button>
+            <button type="button" role="menuitemradio" aria-checked="false" data-e="😡" data-i-label="socialReaccionEnojado">😡</button>
+          </div>
 
           <!-- Lista de chats: el general y los privados -->
           <section id="social-panel-chats" class="social-panel" aria-labelledby="social-panel-chats-titulo" hidden>
@@ -436,10 +477,10 @@
     </div>
   </div>
 
-  <script src="textos.js?v=3"></script>
+  <script src="textos.js?v=4"></script>
   <script src="script.js"></script>
   <script src="social-avatares.js?v=2"></script>
-  <script src="social-medios.js?v=2"></script>
-  <script src="social.js?v=6"></script>
+  <script src="social-medios.js?v=3"></script>
+  <script src="social.js?v=7"></script>
 </body>
 </html>

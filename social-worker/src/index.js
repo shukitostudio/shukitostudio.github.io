@@ -37,6 +37,9 @@ const SIN_USAR_HORAS = 1;                  // un archivo subido que no se envió
 const CLAVE_ARCHIVO = /^[a-f0-9]{40}$/;
 const MAX_SUBIDA = 8 * 1024 * 1024;        // el más grande de todos (video)
 
+// ---------- Reacciones a los mensajes ----------
+const REACCIONES = ["👍", "❤️", "😢", "😡"];
+
 // ---------- Traducir (Workers AI, binding AI) ----------
 const MODELO_TRADUCIR = "@cf/meta/m2m100-1.2b";
 const TRADUCCIONES_MAX = 40;               // traducciones nuevas por persona...
@@ -235,6 +238,9 @@ export class SalaSocial extends DurableObject {
     // Traducciones ya hechas: se reutilizan y se borran junto con su mensaje.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS traducciones (
       id INTEGER NOT NULL, idioma TEXT NOT NULL, texto TEXT NOT NULL, PRIMARY KEY (id, idioma))`);
+    // Reacciones: una por persona y mensaje. Se borran junto con su mensaje.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS reacciones (
+      id INTEGER NOT NULL, nombre TEXT NOT NULL COLLATE NOCASE, emoji TEXT NOT NULL, PRIMARY KEY (id, nombre))`);
     // Responde "pong" a los "ping" del teléfono sin despertar al servidor.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -274,6 +280,8 @@ export class SalaSocial extends DurableObject {
     }
     this.sql.exec("DELETE FROM intentos WHERE ts < ?", ahora - INTENTOS_VENTANA);
     this.sql.exec("DELETE FROM traducciones WHERE id NOT IN (SELECT id FROM mensajes)");
+    this.sql.exec("DELETE FROM reacciones WHERE id NOT IN (SELECT id FROM mensajes)");
+    this.sql.exec("DELETE FROM reacciones WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
   }
 
   // Traduce con Workers AI. TRADUCTOR_PRUEBA="1" (solo al probar en la computadora) no llama a nadie.
@@ -638,8 +646,11 @@ export class SalaSocial extends DurableObject {
         .filter((x) => esMiembro(x.sala, fila.nombre) && x.id > (ocultos.get(x.sala) || 0)).map(paraEnviar);
       const lecturas = this.sql.exec("SELECT nombre, sala, id FROM lecturas").toArray()
         .filter((x) => esMiembro(x.sala, fila.nombre)).map((x) => ({ n: x.nombre, sala: x.sala, id: x.id }));
+      const visibles = new Set(mensajes.map((x) => x.id));
+      const reacciones = this.sql.exec("SELECT id, nombre, emoji FROM reacciones").toArray()
+        .filter((x) => visibles.has(x.id)).map((x) => ({ id: x.id, n: x.nombre, e: x.emoji }));
       this.enviar(ws, { t: "hola", yo: fila.nombre, mensajes, lecturas, perfiles: this.perfiles(), horas: this.horas(), admin,
-        silencios: this.silenciosDe(fila.nombre) });
+        silencios: this.silenciosDe(fila.nombre), reacciones });
       this.enviarATodos(this.estado());
       await this.programarLimpieza();
       return;
@@ -779,6 +790,25 @@ export class SalaSocial extends DurableObject {
         this.sql.exec("INSERT OR REPLACE INTO traducciones (id, idioma, texto) VALUES (?, ?, ?)", id, a, texto);
       }
       this.enviar(ws, { t: "traduccion", id, a, texto });
+      return;
+    }
+
+    if (m.t === "reaccion") {
+      // Una reacción por persona y mensaje. La misma otra vez (o "") la quita; otra distinta la cambia.
+      const id = Math.floor(Number(m.id) || 0);
+      const msg = this.sql.exec("SELECT id, sala FROM mensajes WHERE id = ?", id).toArray()[0];
+      const oculto = msg && this.sql.exec("SELECT hasta FROM ocultos WHERE nombre = ? AND sala = ?", yo.nombre, msg.sala).toArray()[0];
+      if (!msg || !esMiembro(msg.sala, yo.nombre) || (oculto && msg.id <= oculto.hasta)) return;
+      const pedido = REACCIONES.includes(m.e) ? m.e : "";
+      const antes = this.sql.exec("SELECT emoji FROM reacciones WHERE id = ? AND nombre = ?", id, yo.nombre).toArray()[0];
+      const e = antes && antes.emoji === pedido ? "" : pedido;
+      if (e) {
+        this.sql.exec(`INSERT INTO reacciones (id, nombre, emoji) VALUES (?, ?, ?)
+          ON CONFLICT (id, nombre) DO UPDATE SET emoji = excluded.emoji`, id, yo.nombre, e);
+      } else {
+        this.sql.exec("DELETE FROM reacciones WHERE id = ? AND nombre = ?", id, yo.nombre);
+      }
+      this.enviarASala(msg.sala, { t: "reaccion", sala: msg.sala, id, n: yo.nombre, e });
       return;
     }
 

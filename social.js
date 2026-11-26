@@ -274,6 +274,8 @@
     cancelarGrabacion();   // apaga el micrófono si estaba grabando
     cerrarVentanaMedio();
     cerrarVisor();
+    cerrarSelectorReaccion();
+    cerrarMenuAdjuntar(false);
     raiz.hidden = true;
     document.documentElement.classList.remove('social-abierto');
     iphoneDespues();
@@ -294,6 +296,8 @@
     else if (!$('social-ventana-medio').hidden) cerrarVentanaMedio();
     else if (!$('social-grabando').hidden) cancelarGrabacion();
     else if (!menu.hidden) cerrarMenu(true);
+    else if (!selector.hidden) cerrarSelectorReaccion(true);
+    else if (!menuAdjuntar.hidden) cerrarMenuAdjuntar(true);
     else if (!menuChat.hidden) cerrarMenuChat(true);
     else if (!$('social-estado-form').hidden) cancelarEstado();
     else if (panel) cerrarPanel(true);
@@ -412,6 +416,9 @@
     cerrarVisor();
     soltarArchivos();
     traducciones = {}; verTraduccion = {}; traduciendo = {};
+    reaccionesDe = {};
+    cerrarSelectorReaccion();
+    cerrarMenuAdjuntar(false);
     cancelarEstado();
     cerrarPanel(false);
     chats = {}; lecturas = {}; usuarios = []; pendientes = {}; perfiles = {};
@@ -556,6 +563,8 @@
   function abrirPanel(cual) {
     cerrarMenu(false);
     cerrarMenuChat(false);
+    cerrarSelectorReaccion();
+    cerrarMenuAdjuntar(false);
     cancelarEstado();
     panel = cual;
     ponerVista();
@@ -1177,7 +1186,8 @@
       sin_archivos: 'socialErrSinArchivos', grande: 'socialErrGrande', muchos: 'socialErrMuchos',
       tipo: 'socialErrFormato', formato: 'socialErrFormato', largo: 'socialErrLargoMedio',
       sesion: 'socialErrSesion', permiso: 'socialErrMicrofono', sin_grabador: 'socialErrSinGrabador',
-      reproducir: 'socialErrFormato', vacio: 'socialErrFormato'
+      reproducir: 'socialErrVideoReproducir', vacio: 'socialErrFormato', abrir: 'socialErrVideoAbrir',
+      interrumpido: 'socialErrVideoInterrumpido', atascado: 'socialErrVideoAtascado'
     }[motivo] || 'socialErrRed');
   }
 
@@ -1320,7 +1330,17 @@
 
   // --- Foto o video: elegir, reducir, ver antes de enviar ---
   var ventanaMedio = $('social-ventana-medio');
+  var conversion = null;        // preparación de un video en curso (tiene .cancelar())
   function estadoMedio(texto) { $('social-medio-estado').textContent = texto || ''; }
+  // Barra de progreso (null la esconde).
+  function barraMedio(p) {
+    var barra = $('social-medio-barra');
+    barra.hidden = p === null;
+    if (p === null) return;
+    var n = Math.round(Math.max(0, Math.min(1, p)) * 100);
+    $('social-medio-barra-relleno').style.width = n + '%';
+    barra.setAttribute('aria-valuenow', String(n));
+  }
   function abrirVentanaMedio(tipo) {
     cerrarMenu(false);
     cerrarMenuChat(false);
@@ -1329,13 +1349,24 @@
     $('social-medio-texto').value = caja.value.trim();
     $('social-medio-error').textContent = '';
     $('social-medio-enviar').disabled = true;
+    $('social-medio-trozo').hidden = true;
+    $('social-medio-consejo').hidden = true;
+    barraMedio(null);
     ventanaMedio.hidden = false;
     $('social-medio-cancelar').focus();
   }
   function cerrarVentanaMedio() {
     preparando = null;
+    if (conversion) { conversion.cancelar(); conversion = null; }
     if (subida) subida.abort();
-    if (medioPendiente && medioPendiente.url) URL.revokeObjectURL(medioPendiente.url);
+    if (medioPendiente) {
+      if (medioPendiente.url) URL.revokeObjectURL(medioPendiente.url);
+      if (medioPendiente.abierto) {
+        var son = medioPendiente.abierto.video._sonido;
+        if (son && son.ac) { try { son.ac.close(); } catch (e) { /* nada */ } }
+        medioPendiente.abierto.soltar();
+      }
+    }
     medioPendiente = null;
     if (ventanaMedio.hidden) return;
     ventanaMedio.hidden = true;
@@ -1347,49 +1378,143 @@
     return (bytes / 1024 / 1024).toFixed(1).replace('.', idioma() === 'en' ? '.' : ',') + ' MB';
   }
 
-  $('social-adjuntar').addEventListener('click', function () {
+  // Menú del clip: galería, tomar foto, grabar video (solo en pantallas táctiles) y audio.
+  var menuAdjuntar = $('social-menu-adjuntar');
+  var botonAdjuntar = $('social-adjuntar');
+  var esTactil = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  Array.prototype.forEach.call(menuAdjuntar.querySelectorAll('.solo-tactil'), function (b) { b.hidden = !esTactil; });
+  function abrirMenuAdjuntar() {
     if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
-    $('social-archivo').click();
+    cerrarMenuChat(false);
+    cerrarSelectorReaccion();
+    menuAdjuntar.hidden = false;
+    botonAdjuntar.setAttribute('aria-expanded', 'true');
+    menuAdjuntar.querySelector('button:not([hidden])').focus();
+  }
+  function cerrarMenuAdjuntar(devolverFoco) {
+    if (menuAdjuntar.hidden) return;
+    menuAdjuntar.hidden = true;
+    botonAdjuntar.setAttribute('aria-expanded', 'false');
+    if (devolverFoco) botonAdjuntar.focus();
+  }
+  botonAdjuntar.addEventListener('click', function () { if (menuAdjuntar.hidden) abrirMenuAdjuntar(); else cerrarMenuAdjuntar(true); });
+  document.addEventListener('click', function (e) {
+    if (!menuAdjuntar.hidden && !menuAdjuntar.contains(e.target) && !botonAdjuntar.contains(e.target)) cerrarMenuAdjuntar(false);
   });
-  $('social-archivo').addEventListener('change', function () {
-    var archivo = this.files && this.files[0];
-    this.value = '';
-    if (!archivo || !M) return;
-    var esVideo = /^video\//.test(archivo.type), esFoto = /^image\//.test(archivo.type);
-    if (!esVideo && !esFoto) { mostrarAviso(t('socialErrFormato')); return; }
-    var tipo = esVideo ? 'video' : 'foto';
+  menuAdjuntar.addEventListener('keydown', function (e) {
+    var items = Array.prototype.slice.call(menuAdjuntar.querySelectorAll('button:not([hidden])'));
+    var i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Tab') cerrarMenuAdjuntar(false);
+  });
+  // El selector de archivos se abre dentro del mismo toque (si no, el teléfono lo bloquea).
+  [['social-op-galeria', 'social-archivo'], ['social-op-camara-foto', 'social-camara-foto'], ['social-op-camara-video', 'social-camara-video']]
+    .forEach(function (par) {
+      $(par[0]).addEventListener('click', function () { cerrarMenuAdjuntar(false); $(par[1]).click(); });
+      $(par[1]).addEventListener('change', function () {
+        var archivo = this.files && this.files[0];
+        this.value = '';
+        if (archivo) elegirArchivo(archivo);
+      });
+    });
+  $('social-op-audio').addEventListener('click', function () { cerrarMenuAdjuntar(false); $('social-microfono').click(); });
+
+  function elegirArchivo(archivo) {
+    if (!M) return;
+    var tipo = M.clase(archivo);
+    if (!tipo) { mostrarAviso(t('socialErrFormato')); return; }
     abrirVentanaMedio(tipo);
-    estadoMedio(t(esVideo ? 'socialPreparandoVideo' : 'socialPreparando', { p: 0 }));
     var marca = {};
     preparando = marca;
     var sala = salaActual;
-    var trabajo = esFoto ? M.reducirFoto(archivo)
-      : M.reducirVideo(archivo, function (p) { if (preparando === marca) estadoMedio(t('socialPreparandoVideo', { p: Math.round(p * 100) })); });
-    trabajo.then(function (res) {
-      if (preparando !== marca) return;
+    var previa = $('social-medio-previa');
+    if (tipo === 'foto') {
+      estadoMedio(t('socialPreparando'));
+      M.reducirFoto(archivo).then(function (res) {
+        if (preparando !== marca) return;
+        preparando = null;
+        res.tipo = 'foto';
+        res.sala = sala;
+        res.url = URL.createObjectURL(res.blob);
+        medioPendiente = res;
+        var img = document.createElement('img');
+        img.alt = t('socialVistaPrevia');
+        img.src = res.url;
+        previa.appendChild(img);
+        estadoMedio(tamano(res.blob.size));
+        $('social-medio-enviar').disabled = false;
+      }).catch(function (motivo) {
+        if (preparando !== marca) return;
+        preparando = null;
+        estadoMedio('');
+        $('social-medio-error').textContent = errorMedio(motivo);
+      });
+      return;
+    }
+    // Video: primero se muestra tal cual; se prepara al tocar "Enviar" (ver más abajo).
+    estadoMedio(t('socialAbriendoVideo'));
+    M.abrirVideo(archivo).then(function (ab) {
+      if (preparando !== marca) { ab.soltar(); return; }
       preparando = null;
-      res.tipo = tipo;
-      res.sala = sala;
-      res.url = URL.createObjectURL(res.blob);
-      medioPendiente = res;
-      var previa = $('social-medio-previa');
-      var el = document.createElement(esFoto ? 'img' : 'video');
-      if (esFoto) el.alt = t('socialVistaPrevia');
-      else { el.controls = true; el.setAttribute('playsinline', ''); el.preload = 'metadata'; }
-      el.src = res.url;
-      previa.appendChild(el);
-      var nota = tamano(res.blob.size) + (esVideo ? ' · ' + duracion(res.dur) : '');
-      if (res.cortado) nota += ' · ' + t('socialVideoCortado', { s: M.VIDEO_SEG });
-      estadoMedio(nota);
+      medioPendiente = { tipo: 'video', sala: sala, abierto: ab, inicio: 0 };
+      var v = ab.video;
+      v.controls = true;
+      v.className = 'social-previa-video';
+      previa.appendChild(v);
+      var seg = M.VIDEO_SEG;
+      var largo = ab.dur > seg + 0.5;
+      var trozo = $('social-medio-trozo'), desde = $('social-medio-desde');
+      trozo.hidden = !largo;
+      function pintarTrozo() {
+        var a = medioPendiente.inicio, b = Math.min(ab.dur, a + seg);
+        $('social-medio-trozo-texto').textContent = t('socialVideoTrozo', { a: duracion(Math.floor(a)), b: duracion(Math.round(b)) });
+      }
+      if (largo) {
+        desde.max = String(Math.max(0, Math.floor((ab.dur - seg) * 2) / 2));
+        desde.value = '0';
+        desde.oninput = function () {
+          medioPendiente.inicio = Number(desde.value) || 0;
+          try { v.pause(); v.currentTime = medioPendiente.inicio; } catch (e) { /* nada */ }
+          pintarTrozo();
+        };
+        pintarTrozo();
+      }
+      estadoMedio(t('socialVideoListo', { d: duracion(Math.round(Math.min(ab.dur, seg))) }));
+      $('social-medio-consejo').textContent = t('socialVideoConsejo');
+      $('social-medio-consejo').hidden = false;
       $('social-medio-enviar').disabled = false;
-      $('social-medio-texto').focus();
     }).catch(function (motivo) {
       if (preparando !== marca) return;
       preparando = null;
       estadoMedio('');
       $('social-medio-error').textContent = errorMedio(motivo);
     });
-  });
+  }
+
+  function subirYEnviar(medio, texto) {
+    estadoMedio(t('socialSubiendo', { p: 0 }));
+    barraMedio(0);
+    subirArchivo(medio, function (p) { estadoMedio(t('socialSubiendo', { p: Math.round(p * 100) })); barraMedio(p); }).then(function (clave) {
+      enviarConArchivo(clave, texto, medio.sala);
+      if (texto && caja.value.trim() === texto) { caja.value = ''; ajustarCaja(); }
+      cerrarVentanaMedio();
+    }).catch(function (motivo) {
+      if (motivo === 'cancelado') return;
+      falloMedio(motivo);
+    });
+  }
+  function falloMedio(motivo) {
+    estadoMedio('');
+    barraMedio(null);
+    $('social-medio-error').textContent = errorMedio(motivo);
+    $('social-medio-enviar').disabled = false;
+    var m = medioPendiente;
+    if (m && m.abierto && !m.blob) {
+      m.abierto.video.controls = true;
+      $('social-medio-trozo').hidden = !(m.abierto.dur > M.VIDEO_SEG + 0.5);
+    }
+  }
   $('social-medio-cancelar').addEventListener('click', cerrarVentanaMedio);
   ventanaMedio.addEventListener('click', function (e) { if (e.target === ventanaMedio) cerrarVentanaMedio(); });
   $('social-form-medio').addEventListener('submit', function (e) {
@@ -1400,16 +1525,27 @@
     if (Array.from(texto).length > MAX_LARGO) { $('social-medio-error').textContent = t('socialErrLargo'); return; }
     $('social-medio-enviar').disabled = true;
     $('social-medio-error').textContent = '';
-    estadoMedio(t('socialSubiendo', { p: 0 }));
-    subirArchivo(medio, function (p) { estadoMedio(t('socialSubiendo', { p: Math.round(p * 100) })); }).then(function (clave) {
-      enviarConArchivo(clave, texto, medio.sala);
-      if (texto && caja.value.trim() === texto) { caja.value = ''; ajustarCaja(); }
-      cerrarVentanaMedio();
-    }).catch(function (motivo) {
-      if (motivo === 'cancelado') return;
-      estadoMedio('');
-      $('social-medio-error').textContent = errorMedio(motivo);
-      $('social-medio-enviar').disabled = false;
+    if (medio.blob) { subirYEnviar(medio, texto); return; }
+    // Video: se prepara AHORA, dentro del toque (Safari solo deja reproducir así). Sin esperas antes de esto.
+    $('social-medio-trozo').hidden = true;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // cierra el teclado
+    estadoMedio(t('socialPreparandoVideo', { p: 0 }));
+    barraMedio(0);
+    var conv = M.convertirVideo(medio.abierto, medio.inicio, function (p, intento) {
+      if (conversion !== conv) return;
+      estadoMedio(t(intento ? 'socialReduciendoMas' : 'socialPreparandoVideo', { p: Math.round(p * 100) }));
+      barraMedio(p);
+    });
+    conversion = conv;
+    conv.then(function (res) {
+      if (conversion !== conv) return;
+      conversion = null;
+      medio.blob = res.blob; medio.mime = res.mime; medio.ancho = res.ancho; medio.alto = res.alto; medio.dur = res.dur;
+      subirYEnviar(medio, texto);
+    }, function (motivo) {
+      if (conversion !== conv) return;
+      conversion = null;
+      if (motivo !== 'cancelado') falloMedio(motivo);
     });
   });
 
@@ -1577,6 +1713,8 @@
       pendientes = {};
       esAdmin = !!m.admin;
       ponerSilencios(m.silencios);
+      reaccionesDe = {};
+      (m.reacciones || []).forEach(function (x) { ponerReaccion(x.id, x.n, x.e); });
       pintarAdmin();
       pintarPerfil();
       pintarCabeceraSala();
@@ -1683,6 +1821,13 @@
       avisar(mm);
       actualizarAsterisco();
       refrescarListas();
+    } else if (m.t === 'reaccion') {
+      ponerReaccion(m.id, m.n, m.e);
+      if ((m.sala || GENERAL) === salaActual) {
+        var filaR = lista.querySelector('.social-fila[data-id="' + Number(m.id) + '"]');
+        var cercaR = lista.scrollHeight - lista.scrollTop - lista.clientHeight < 120;
+        if (filaR) { pintarReacciones(filaR, m.id); if (cercaR && !filaR.nextElementSibling) bajar(false); }
+      }
     } else if (m.t === 'leido') {
       ponerLectura(m.sala || GENERAL, m.n, m.id);
       if ((m.sala || GENERAL) === salaActual) actualizarMarcas();
@@ -1742,6 +1887,7 @@
   }
 
   function pintarTodo() {
+    cerrarSelectorReaccion();
     lista.textContent = '';
     var c = datosSala(salaActual);
     if (!c.mensajes.length) {
@@ -1834,6 +1980,7 @@
       pintarTraduccion(fila, m.id);
     }
     var primerPendiente = lista.querySelector('.social-fila.pendiente');
+    if (m.id) { prepararReaccion(fila, m.id); pintarReacciones(fila, m.id); }
     lista.insertBefore(fila, primerPendiente);
     if (mio) ponerMarca(fila, m.id);
     if (animar && (mio || cerca)) bajar(false);
@@ -1852,6 +1999,147 @@
     marca.setAttribute('aria-label', todos ? t(salaActual === GENERAL ? 'socialLeido' : 'socialLeidoPrivado') : t('socialEnviado'));
     marca.title = marca.getAttribute('aria-label');
   }
+
+  /* ---------- Reacciones 👍 ❤️ 😢 😡 (una por persona y mensaje) ---------- */
+  var REACCIONES = ['👍', '❤️', '😢', '😡'];
+  var reaccionesDe = {};        // id del mensaje -> {nombre en minúsculas: {n, e}}
+  var selector = $('social-reaccionar');
+  var selectorId = 0, selectorFila = null;
+
+  function ponerReaccion(id, nombre, e) {
+    var r = reaccionesDe[id] || (reaccionesDe[id] = {});
+    if (e) r[minus(nombre)] = { n: nombre, e: e }; else delete r[minus(nombre)];
+  }
+  function miReaccion(id) {
+    var x = reaccionesDe[id] && reaccionesDe[id][yoMinus()];
+    return x ? x.e : '';
+  }
+  function reaccionar(id, e) {
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    ws.send(JSON.stringify({ t: 'reaccion', id: id, e: e }));
+  }
+
+  // Debajo de la burbuja: una pastilla por reacción con su contador. La mía, resaltada.
+  function pintarReacciones(fila, id) {
+    var b = fila.querySelector('.social-burbuja');
+    var vieja = fila.querySelector('.social-reacciones');
+    if (vieja) vieja.remove();
+    var r = reaccionesDe[id] || {}, grupos = {}, hay = false;
+    for (var k in r) (grupos[r[k].e] = grupos[r[k].e] || []).push(r[k].n);
+    var mia = miReaccion(id);
+    var cajaR = document.createElement('div');
+    cajaR.className = 'social-reacciones';
+    REACCIONES.forEach(function (e) {
+      var nombres = grupos[e];
+      if (!nombres) return;
+      hay = true;
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'social-reaccion' + (e === mia ? ' es-mia' : '');
+      chip.setAttribute('aria-pressed', e === mia ? 'true' : 'false');
+      var em = document.createElement('span');
+      em.className = 'social-reaccion-emoji';
+      em.setAttribute('aria-hidden', 'true');
+      em.textContent = e;
+      var n = document.createElement('span');
+      n.className = 'social-reaccion-n';
+      n.setAttribute('aria-hidden', 'true');
+      n.textContent = nombres.length;
+      chip.appendChild(em);
+      chip.appendChild(n);
+      chip.setAttribute('aria-label', t('socialReaccionEtiqueta', { e: e, n: nombres.length, quien: nombres.join(', ') })
+        + ' ' + t(e === mia ? 'socialReaccionQuitar' : 'socialReaccionPoner'));
+      chip.title = nombres.join(', ');
+      chip.addEventListener('click', function () { reaccionar(id, e); });
+      cajaR.appendChild(chip);
+    });
+    fila.classList.toggle('con-reacciones', hay);
+    if (hay) b.appendChild(cajaR);
+  }
+
+  // Mantener pulsado (o clic derecho en la computadora) abre el selector.
+  function prepararReaccion(fila, id) {
+    var b = fila.querySelector('.social-burbuja');
+    var reloj = null, x0 = 0, y0 = 0, largo = false;
+    function soltar() { clearTimeout(reloj); reloj = null; }
+    b.addEventListener('pointerdown', function (e) {
+      if (e.button > 0 || e.target.closest('.social-reacciones, .social-traducir, .social-papelera, audio, video')) return;
+      largo = false; x0 = e.clientX; y0 = e.clientY;
+      soltar();
+      reloj = setTimeout(function () {
+        reloj = null;
+        largo = true;
+        abrirSelectorReaccion(fila, id);
+      }, 450);
+    });
+    b.addEventListener('pointermove', function (e) {
+      if (reloj && Math.abs(e.clientX - x0) + Math.abs(e.clientY - y0) > 10) soltar();
+    });
+    b.addEventListener('pointerup', soltar);
+    b.addEventListener('pointercancel', soltar);
+    b.addEventListener('pointerleave', soltar);
+    b.addEventListener('contextmenu', function (e) {
+      if (e.target.closest('audio, video')) return;
+      e.preventDefault();
+      if (selectorId !== id) abrirSelectorReaccion(fila, id);
+    });
+    // Tras mantener pulsado, el toque que sigue no abre la foto ni otra cosa.
+    b.addEventListener('click', function (e) {
+      if (largo) { e.preventDefault(); e.stopPropagation(); largo = false; }
+    }, true);
+  }
+
+  function abrirSelectorReaccion(fila, id) {
+    if (!fila.isConnected) return;
+    cerrarSelectorReaccion();
+    cerrarMenuAdjuntar(false);
+    selectorId = id;
+    selectorFila = fila;
+    fila.classList.add('reaccionando');
+    var mia = miReaccion(id);
+    Array.prototype.forEach.call(selector.querySelectorAll('button'), function (bt) {
+      bt.setAttribute('aria-checked', bt.getAttribute('data-e') === mia ? 'true' : 'false');
+    });
+    selector.hidden = false;
+    // Arriba de la burbuja; si no cabe, debajo. Alineado al lado de la burbuja.
+    var vista = selector.parentNode.getBoundingClientRect();
+    var r = fila.querySelector('.social-burbuja').getBoundingClientRect();
+    var ancho = selector.offsetWidth, alto = selector.offsetHeight;
+    var arriba = r.top - vista.top - alto - 8;
+    if (arriba < 4) arriba = Math.min(r.bottom - vista.top + 8, vista.height - alto - 4);
+    var izq = fila.classList.contains('mia') ? r.right - vista.left - ancho : r.left - vista.left;
+    izq = Math.max(6, Math.min(izq, vista.width - ancho - 6));
+    selector.style.top = Math.round(arriba) + 'px';
+    selector.style.left = Math.round(izq) + 'px';
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* nada */ } }
+    (selector.querySelector('[aria-checked="true"]') || selector.querySelector('button')).focus({ preventScroll: true });
+  }
+  function cerrarSelectorReaccion(devolverFoco) {
+    if (selector.hidden) return;
+    selector.hidden = true;
+    if (selectorFila) selectorFila.classList.remove('reaccionando');
+    selectorId = 0;
+    selectorFila = null;
+    if (devolverFoco) caja.focus();
+  }
+  selector.addEventListener('click', function (e) {
+    var bt = e.target.closest('button');
+    if (!bt) return;
+    var id = selectorId;
+    cerrarSelectorReaccion();
+    reaccionar(id, bt.getAttribute('data-e'));
+  });
+  selector.addEventListener('keydown', function (e) {
+    var items = Array.prototype.slice.call(selector.querySelectorAll('button'));
+    var i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Tab') cerrarSelectorReaccion();
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (!selector.hidden && !selector.contains(e.target)) cerrarSelectorReaccion();
+  });
+  lista.addEventListener('scroll', function () { cerrarSelectorReaccion(); }, { passive: true });
 
   function actualizarMarcas() {
     var filas = lista.querySelectorAll('.social-fila.mia[data-id]');
