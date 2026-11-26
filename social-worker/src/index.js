@@ -568,8 +568,11 @@ export class SalaSocial extends DurableObject {
       const a = ws.deserializeAttachment();
       if (a && a.nombre) enLinea.add(a.nombre.toLowerCase());
     }
-    const usuarios = this.sql.exec("SELECT nombre FROM usuarios ORDER BY nombre").toArray()
-      .map((u) => ({ n: u.nombre, enLinea: enLinea.has(u.nombre.toLowerCase()) }));
+    // "visto": la última vez que estuvo conectado (para "Últ. vez hoy a las…"). Solo si no está en línea.
+    const usuarios = this.sql.exec("SELECT nombre, visto FROM usuarios ORDER BY nombre").toArray()
+      .map((u) => enLinea.has(u.nombre.toLowerCase())
+        ? { n: u.nombre, enLinea: true }
+        : { n: u.nombre, enLinea: false, visto: u.visto });
     return { t: "estado", usuarios };
   }
 
@@ -919,12 +922,20 @@ export class SalaSocial extends DurableObject {
     }
   }
 
+  // Al desconectarse se guarda la hora: es la "última vez" que ven los demás.
+  marcarSalida(ws) {
+    const a = ws.deserializeAttachment();
+    if (a && a.nombre) this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", Date.now(), a.nombre);
+  }
+
   async webSocketClose(ws, codigo) {
     try { ws.close(codigo === 1005 ? 1000 : codigo, "adios"); } catch (e) { /* ya cerrada */ }
+    this.marcarSalida(ws);
     this.enviarATodos(this.estado(ws), ws);
   }
 
   async webSocketError(ws) {
+    this.marcarSalida(ws);
     this.enviarATodos(this.estado(ws), ws);
   }
 }

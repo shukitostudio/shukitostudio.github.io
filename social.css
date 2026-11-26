@@ -449,3 +449,219 @@ p.social-admin-bloque { display: block; margin-bottom: 6px; }
   .social-barra-chats { gap: 6px; padding: 6px; }
   .social-priv-lista { font-size: 15px; }
 }
+
+/* =====================================================================
+   Conversación con estilo cristal (tipo Windows Vista)
+   Solo la pantalla de una conversación: el muro de la otra persona arriba, burbujas con brillo,
+   barra de escribir de cristal. La lista (mi perfil, Chats y Contactos) queda como estaba.
+   ===================================================================== */
+:root {
+  --ae-fondo: radial-gradient(130% 55% at 50% 0%, rgba(46, 120, 205, .30), transparent 70%),
+              linear-gradient(180deg, #0f1c2e 0%, #0c1522 100%);
+  --ae-cristal: linear-gradient(180deg, rgba(120, 170, 230, .30) 0%, rgba(60, 110, 175, .22) 48%,
+                rgba(20, 55, 105, .40) 52%, rgba(25, 65, 120, .32) 100%);
+  --ae-cristal-borde: rgba(160, 205, 255, .30);
+  --ae-brillo: rgba(255, 255, 255, .28);
+  --ae-muro: linear-gradient(135deg, #1d5a9c 0%, #123b6b 45%, #0e2c52 70%, #1a5f9e 100%);
+  --ae-muro-texto: #f2f8ff;
+  --ae-muro-tenue: #b9d3ef;
+  --ae-mia: linear-gradient(180deg, #6cbcff 0%, #3592ea 48%, #1d74d0 52%, #2b87e3 100%);
+  --ae-mia-borde: rgba(20, 70, 140, .9);
+  --ae-mia-texto: #ffffff;
+  --ae-otra: linear-gradient(180deg, #4a5770 0%, #36415a 48%, #2c3650 52%, #343f58 100%);
+  --ae-otra-borde: rgba(140, 170, 210, .28);
+  --ae-otra-texto: #eef3fa;
+  --ae-campo: linear-gradient(180deg, #0c1420, #17212f);
+  --ae-campo-borde: rgba(140, 180, 230, .35);
+  --ae-boton: linear-gradient(180deg, #8fd0ff 0%, #3a9bf0 45%, #1670d0 55%, #2f8fe8 100%);
+  --ae-verde: #45f07a;
+  --ae-gris: linear-gradient(180deg, #c4cad3, #868f9c);
+  --ae-tenue: #9fb2c9;
+}
+html[data-tema="dia"] {
+  --ae-fondo: radial-gradient(130% 55% at 50% 0%, rgba(120, 190, 255, .45), transparent 70%),
+              linear-gradient(180deg, #e4eef8 0%, #d6e3f1 100%);
+  --ae-cristal: linear-gradient(180deg, rgba(255, 255, 255, .95) 0%, rgba(236, 245, 254, .9) 48%,
+                rgba(212, 230, 248, .92) 52%, rgba(226, 239, 252, .95) 100%);
+  --ae-cristal-borde: rgba(120, 160, 205, .55);
+  --ae-brillo: rgba(255, 255, 255, .9);
+  --ae-muro: linear-gradient(135deg, #ffffff 0%, #dcedfc 40%, #bcdaf6 70%, #d9ecfd 100%);
+  --ae-muro-texto: #10304f;
+  --ae-muro-tenue: #3f5f80;
+  --ae-mia: linear-gradient(180deg, #eef8ff 0%, #cfe8fc 48%, #b5dbfa 52%, #cbe6fd 100%);
+  --ae-mia-borde: rgba(80, 140, 200, .65);
+  --ae-mia-texto: #0b2c48;
+  --ae-otra: linear-gradient(180deg, #ffffff 0%, #f6f8fb 48%, #eaeef4 52%, #f3f6fa 100%);
+  --ae-otra-borde: rgba(140, 160, 185, .55);
+  --ae-otra-texto: #1e2430;
+  --ae-campo: linear-gradient(180deg, #f3f7fb, #ffffff);
+  --ae-campo-borde: rgba(110, 150, 195, .6);
+  --ae-boton: linear-gradient(180deg, #a9dcff 0%, #4aa6f2 45%, #1f7bd8 55%, #3b98ec 100%);
+  --ae-verde: #19c24d;
+  --ae-gris: linear-gradient(180deg, #d5dae1, #9aa3af);
+  --ae-tenue: #5a6d84;
+}
+
+/* Qué se ve en cada vista */
+.social.en-conversacion .social-perfil,
+.social.en-conversacion .social-barra-chats { display: none; }
+.social:not(.en-conversacion) .social-muro { display: none; }
+
+/* Franja del mono: cristal */
+.social.en-conversacion .social-cabecera {
+  background: var(--ae-cristal), var(--so-barra); border-bottom: 1px solid var(--ae-cristal-borde);
+  box-shadow: inset 0 1px 0 var(--ae-brillo);
+}
+
+/* Fondo de la conversación */
+.social.en-conversacion .social-chat { background: var(--ae-fondo); background-color: var(--so-chat); }
+
+/* ---------- Muro de la otra persona ---------- */
+.social-muro {
+  flex: none; position: relative; z-index: 4; display: flex; align-items: center; gap: 12px;
+  padding: 12px 6px 12px 4px; color: var(--ae-muro-texto);
+  background: var(--ae-muro); border-bottom: 1px solid var(--ae-cristal-borde);
+  box-shadow: inset 0 1px 0 var(--ae-brillo), 0 3px 10px rgba(0, 20, 50, .28);
+}
+/* Brillo de cristal en la mitad de arriba */
+.social-muro::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 50%; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, .05));
+}
+html[data-tema="dia"] .social-muro::before { background: linear-gradient(180deg, rgba(255, 255, 255, .75), rgba(255, 255, 255, .15)); }
+.social-muro > * { position: relative; }
+.social-muro .social-icono { color: var(--ae-muro-texto); }
+.social-volver { border-radius: 50%; }
+.social-volver svg { width: 26px; height: 26px; }
+.social-muro .social-icono:hover { background: rgba(255, 255, 255, .18); }
+html[data-tema="dia"] .social-muro .social-icono:hover { background: rgba(30, 100, 180, .12); }
+
+/* Foto grande con anillo: verde brillante en línea, gris desconectado */
+.social-muro-foto {
+  flex: none; padding: 3px; border-radius: 19px; background: var(--ae-gris);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .6);
+}
+.social-muro-foto .social-avatar {
+  width: 64px; height: 64px; border-radius: 16px; font-size: 38px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .85);
+}
+.social-muro-foto.en-linea {
+  background: linear-gradient(180deg, #c8ff9a 0%, var(--ae-verde) 50%, #12a640 100%);
+  box-shadow: 0 0 8px 2px rgba(69, 240, 122, .85), 0 0 22px 4px rgba(69, 240, 122, .45), inset 0 1px 0 rgba(255, 255, 255, .7);
+  animation: social-brillar 2.6s ease-in-out infinite;
+}
+@keyframes social-brillar {
+  50% { box-shadow: 0 0 12px 3px rgba(69, 240, 122, 1), 0 0 30px 7px rgba(69, 240, 122, .55), inset 0 1px 0 rgba(255, 255, 255, .7); }
+}
+@media (prefers-reduced-motion: reduce) { .social-muro-foto.en-linea { animation: none; } }
+.social-muro-foto.grupo { background: linear-gradient(180deg, #bfe4ff, #3a9bf0 55%, #1b6cc6); }
+.social-muro-foto.grupo .social-avatar { background: rgba(255, 255, 255, .92); }
+.social-muro-foto.grupo .social-avatar img { padding: 4px; }
+
+.social-muro-textos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
+.social-muro-nombre {
+  font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 20, 50, .45);
+}
+html[data-tema="dia"] .social-muro-nombre { text-shadow: 0 1px 0 rgba(255, 255, 255, .9); }
+.social-muro-estado {
+  font-size: 14px; font-style: italic; color: var(--ae-muro-tenue);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.social-muro-presencia {
+  display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ae-muro-tenue);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.social-muro-presencia:empty { display: none; }
+.social-muro-presencia::before {
+  content: ""; flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--ae-gris); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .6);
+}
+.social-muro-presencia.en-linea { color: var(--ae-verde); font-weight: bold; }
+html[data-tema="noche"] .social-muro-presencia.en-linea { text-shadow: 0 0 8px rgba(69, 240, 122, .6); }
+html[data-tema="dia"] .social-muro-presencia.en-linea { color: #0d8a35; }
+.social-muro-presencia.en-linea::before {
+  background: radial-gradient(circle at 35% 30%, #eaffd9, var(--ae-verde) 55%, #0f9a3a);
+  box-shadow: 0 0 6px 1px rgba(69, 240, 122, .9);
+}
+.social-muro-menu-caja { position: relative; flex: none; }
+.social-menu-chat.desde-muro { left: auto; right: 4px; transform: none; top: calc(100% + 4px); }
+
+/* Menús con cristal */
+.social.en-conversacion .social-menu {
+  background: var(--ae-cristal), var(--so-menu); border-color: var(--ae-cristal-borde);
+  box-shadow: var(--so-sombra), inset 0 1px 0 var(--ae-brillo);
+}
+
+/* ---------- Burbujas con brillo ---------- */
+.social.en-conversacion .social-mensajes { gap: 8px; padding: 14px 12px 8px; }
+.social.en-conversacion .social-burbuja {
+  padding: 7px 12px 5px; border-radius: 16px;
+  box-shadow: 0 2px 5px rgba(0, 15, 40, .28), inset 0 1px 0 rgba(255, 255, 255, .45);
+}
+.social.en-conversacion .otra .social-burbuja {
+  background: var(--ae-otra); color: var(--ae-otra-texto); border: 1px solid var(--ae-otra-borde); border-top-left-radius: 5px;
+}
+.social.en-conversacion .mia .social-burbuja {
+  background: var(--ae-mia); color: var(--ae-mia-texto); border: 1px solid var(--ae-mia-borde); border-top-right-radius: 5px;
+}
+html[data-tema="noche"] .social.en-conversacion .mia .social-burbuja { text-shadow: 0 1px 1px rgba(0, 30, 80, .35); }
+html[data-tema="noche"] .social.en-conversacion .mia .social-marca.leido { color: #d6f5ff; }
+.social.en-conversacion .social-avatar.mini { border-radius: 9px; box-shadow: 0 1px 3px rgba(0, 0, 0, .35), 0 0 0 1px rgba(255, 255, 255, .5); }
+.social.en-conversacion .social-vacio {
+  padding: 14px 16px; border-radius: 14px; color: var(--ae-tenue);
+  background: var(--ae-cristal); border: 1px solid var(--ae-cristal-borde); box-shadow: inset 0 1px 0 var(--ae-brillo);
+}
+.social.en-conversacion .social-escribiendo { color: var(--ae-tenue); }
+
+/* ---------- Barra para escribir: cristal ---------- */
+.social.en-conversacion .social-form,
+.social.en-conversacion .social-grabando {
+  background: var(--ae-cristal), var(--so-barra); border-top: 1px solid var(--ae-cristal-borde);
+  box-shadow: inset 0 1px 0 var(--ae-brillo);
+}
+.social.en-conversacion .social-form textarea {
+  background: var(--ae-campo); border: 1px solid var(--ae-campo-borde); border-radius: 22px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, .25);
+}
+html[data-tema="dia"] .social.en-conversacion .social-form textarea { box-shadow: inset 0 2px 3px rgba(40, 70, 110, .15); }
+.social.en-conversacion .social-form textarea:focus {
+  border-color: #4aa6f2; box-shadow: inset 0 2px 4px rgba(0, 0, 0, .2), 0 0 0 3px rgba(74, 166, 242, .3);
+}
+.social.en-conversacion .social-boton-redondo { border-radius: 50%; }
+.social.en-conversacion .social-boton-redondo:hover:not(:disabled) { color: #3a9bf0; background: rgba(120, 180, 255, .18); }
+
+/* Botón de enviar: botón redondo de cristal */
+.social.en-conversacion .social-enviar {
+  position: relative; overflow: hidden; background: var(--ae-boton); color: #fff;
+  border: 1px solid rgba(10, 60, 130, .85);
+  box-shadow: 0 2px 6px rgba(0, 30, 80, .45), inset 0 1px 0 rgba(255, 255, 255, .8), inset 0 -2px 6px rgba(150, 220, 255, .55);
+}
+.social.en-conversacion .social-enviar::before {
+  content: ""; position: absolute; left: 12%; right: 12%; top: 3%; height: 45%; border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .85), rgba(255, 255, 255, .1)); pointer-events: none;
+}
+.social.en-conversacion .social-enviar svg { position: relative; filter: drop-shadow(0 1px 1px rgba(0, 30, 80, .6)); }
+.social.en-conversacion .social-enviar:hover:not(:disabled) {
+  box-shadow: 0 0 10px 2px rgba(90, 180, 255, .7), inset 0 1px 0 rgba(255, 255, 255, .8), inset 0 -2px 6px rgba(150, 220, 255, .55);
+}
+.social.en-conversacion .social-enviar:active:not(:disabled) { filter: brightness(.92); }
+
+/* Botones de las ventanas con brillo (fotos, audio) */
+.social.en-conversacion .social-boton:not(.secundario):not(.peligro) {
+  background: var(--ae-boton); color: #fff; border: 1px solid rgba(10, 60, 130, .7);
+  box-shadow: 0 2px 5px rgba(0, 30, 80, .35), inset 0 1px 0 rgba(255, 255, 255, .7);
+  text-shadow: 0 1px 1px rgba(0, 30, 80, .5);
+}
+
+@media (max-width: 600px) {
+  .social-muro { gap: 10px; padding: 10px 4px 10px 2px; }
+  .social-muro-foto .social-avatar { width: 56px; height: 56px; border-radius: 14px; font-size: 33px; }
+  .social-muro-foto { border-radius: 17px; }
+  .social-muro-nombre { font-size: 18px; }
+}
+/* Con el teclado abierto en el iPhone, el muro se encoge para dejar sitio a los mensajes */
+html.social-teclado .social-muro { padding-top: 6px; padding-bottom: 6px; }
+html.social-teclado .social-muro-foto .social-avatar { width: 40px; height: 40px; border-radius: 11px; font-size: 24px; }
+html.social-teclado .social-muro-foto { padding: 2px; border-radius: 13px; }
+html.social-teclado .social-muro-estado { display: none; }

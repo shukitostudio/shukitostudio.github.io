@@ -71,6 +71,9 @@
   var panelAdmin = $('social-panel-admin');
   var menuChat = $('social-menu-chat');
   var botonSala = $('social-sala-boton');
+  var botonMuroMenu = $('social-muro-menu');
+  var botonVolver = $('social-volver');
+  var botonMenuChat = botonSala; // el botón que abrió el menú del chat (el de la lista o el del muro)
   var ventanaAdmin = $('social-ventana-admin');
   var paneles = { chats: panelChats, contactos: panelContactos, admin: panelAdmin };
   var botonesPanel = { chats: botonChats, contactos: botonContactos };
@@ -121,6 +124,11 @@
   function enLinea(nombreMinus) {
     for (var i = 0; i < usuarios.length; i++) if (minus(usuarios[i].n) === nombreMinus) return !!usuarios[i].enLinea;
     return false;
+  }
+  // Última vez conectado (el servidor solo la manda si la persona no está en línea).
+  function vistoDe(nombreMinus) {
+    for (var i = 0; i < usuarios.length; i++) if (minus(usuarios[i].n) === nombreMinus) return Number(usuarios[i].visto) || 0;
+    return 0;
   }
   function nombreSala(sala) {
     if (sala === GENERAL) return t('socialGeneral');
@@ -296,6 +304,7 @@
     chat.hidden = true;
     barraPerfil.hidden = true;
     formEntrar.hidden = false;
+    ponerVista();
     estadoTxt.textContent = '';
     var ultimo = leer(CLAVE_NOMBRE);
     if (ultimo && !$('social-nombre').value) $('social-nombre').value = ultimo;
@@ -307,6 +316,7 @@
     formEntrar.hidden = true;
     chat.hidden = false;
     barraPerfil.hidden = false;
+    ponerVista();
     pintarPerfil();
     pintarCabeceraSala();
     // Si ya estaba conectado (con el chat cerrado), la pantalla ya tiene todo: solo hay que dibujarlo.
@@ -539,10 +549,16 @@
   });
 
   /* ---------- Chats y contactos ---------- */
+  // Dos vistas: la lista (mi perfil, Chats y Contactos) o la conversación (el muro de la otra persona).
+  function ponerVista() {
+    raiz.classList.toggle('en-conversacion', !panel && !chat.hidden);
+  }
   function abrirPanel(cual) {
     cerrarMenu(false);
+    cerrarMenuChat(false);
     cancelarEstado();
     panel = cual;
+    ponerVista();
     for (var p in paneles) paneles[p].hidden = p !== cual;
     for (var b in botonesPanel) {
       botonesPanel[b].setAttribute('aria-expanded', b === cual ? 'true' : 'false');
@@ -562,16 +578,21 @@
     if (!panel) return;
     var antes = panel;
     panel = null;
+    ponerVista();
+    cerrarMenu(false);
+    cerrarMenuChat(false);
     for (var p in paneles) paneles[p].hidden = true;
     for (var b in botonesPanel) {
       botonesPanel[b].setAttribute('aria-expanded', 'false');
       botonesPanel[b].classList.remove('activo');
     }
-    if (devolverFoco) (botonesPanel[antes] || botonMenu).focus();
+    if (devolverFoco) botonVolver.focus();
     marcarLeido();
   }
   botonChats.addEventListener('click', function () { if (panel === 'chats') cerrarPanel(true); else abrirPanel('chats'); });
   botonContactos.addEventListener('click', function () { if (panel === 'contactos') cerrarPanel(true); else abrirPanel('contactos'); });
+  botonVolver.addEventListener('click', function () { abrirPanel('chats'); });
+  ponerVista();
 
   function abrirSala(sala) {
     datosSala(sala);
@@ -607,7 +628,57 @@
       detalle.textContent = conectado ? t('socialEnLineaAhora') : (p && p.estado) || t('socialDesconectado');
       detalle.classList.toggle('en-linea', conectado);
     }
+    pintarMuro();
   }
+
+  // 8:42 AM (también en español, como pidió Shukito).
+  function hora12(d) {
+    var h = d.getHours(), m = ('0' + d.getMinutes()).slice(-2);
+    return ((h % 12) || 12) + ':' + m + ' ' + (h < 12 ? 'AM' : 'PM');
+  }
+  function textoUltimaVez(ts) {
+    var d = new Date(ts), ahora = new Date();
+    var hoy = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate()).getTime();
+    var ayer = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - 1).getTime();
+    var h = hora12(d);
+    if (ts >= hoy) return t('socialUltVezHoy', { h: h });
+    if (ts >= ayer) return t('socialUltVezAyer', { h: h });
+    var opciones = { day: 'numeric', month: 'short' };
+    if (d.getFullYear() !== ahora.getFullYear()) opciones.year = 'numeric';
+    var f;
+    try { f = d.toLocaleDateString(idioma() === 'en' ? 'en-US' : 'es', opciones).replace('.', ''); }
+    catch (e) { f = d.getDate() + '/' + (d.getMonth() + 1); }
+    return t('socialUltVezFecha', { f: f, h: h });
+  }
+
+  // Muro de arriba en la conversación: foto grande, nombre, estado y "En línea" o "Últ. vez…".
+  function pintarMuro() {
+    var foto = $('social-muro-foto'), estado = $('social-muro-estado'), presencia = $('social-muro-presencia');
+    pintarAvatarSala($('social-muro-avatar'), salaActual);
+    $('social-muro-nombre').textContent = nombreSala(salaActual);
+    $('social-muro-silencio').hidden = !salaSilenciada(salaActual);
+    botonMuroMenu.setAttribute('aria-label', botonSala.getAttribute('aria-label') || '');
+    foto.classList.remove('en-linea', 'grupo');
+    presencia.classList.remove('en-linea');
+    if (salaActual === GENERAL) {
+      var total = Object.keys(perfiles).length;
+      var cuantos = usuarios.filter(function (u) { return u.enLinea; }).length;
+      foto.classList.add('grupo');
+      estado.textContent = total === 1 ? t('socialMiembros1') : t('socialMiembros', { n: total });
+      estado.hidden = false;
+      presencia.textContent = ws && ws.readyState === 1 ? t('socialEnLineaCuenta', { n: cuantos }) : '';
+      presencia.classList.toggle('en-linea', cuantos > 0);
+      return;
+    }
+    var otro = otroDe(salaActual), p = perfilDe(otro), conectado = enLinea(otro), visto = vistoDe(otro);
+    estado.textContent = (p && p.estado) || '';
+    estado.hidden = !(p && p.estado);
+    foto.classList.toggle('en-linea', conectado);
+    presencia.classList.toggle('en-linea', conectado);
+    presencia.textContent = conectado ? t('socialEnLineaAhora') : visto ? textoUltimaVez(visto) : t('socialDesconectado');
+  }
+  // "Hoy" pasa a "ayer" a medianoche: se repinta cada minuto mientras el chat está abierto.
+  setInterval(function () { if (abierto && sesion && !panel) pintarMuro(); }, 60000);
 
   // Un chat se está "viendo" si el chat Social está abierto, sin panel encima, en esa sala y con la página visible.
   function salaVista(sala) {
@@ -1031,23 +1102,28 @@
     }
     opBorrar.textContent = t('socialBorrarChat');
   }
-  function abrirMenuChat() {
+  // El mismo menú sirve para el botón de la lista y para el ⋮ del muro: se mueve junto al botón que lo abre.
+  function abrirMenuChat(desde) {
     if (!sesion) return;
     cerrarMenu(false);
     pintarMenuChat();
+    botonMenuChat = desde || botonSala;
+    if (menuChat.parentNode !== botonMenuChat.parentNode) botonMenuChat.parentNode.appendChild(menuChat);
+    menuChat.classList.toggle('desde-muro', botonMenuChat === botonMuroMenu);
     menuChat.hidden = false;
-    botonSala.setAttribute('aria-expanded', 'true');
+    botonMenuChat.setAttribute('aria-expanded', 'true');
     menuChat.querySelector('button:not([hidden])').focus();
   }
   function cerrarMenuChat(devolverFoco) {
     if (menuChat.hidden) return;
     menuChat.hidden = true;
-    botonSala.setAttribute('aria-expanded', 'false');
-    if (devolverFoco) botonSala.focus();
+    botonMenuChat.setAttribute('aria-expanded', 'false');
+    if (devolverFoco) botonMenuChat.focus();
   }
-  botonSala.addEventListener('click', function () { if (menuChat.hidden) abrirMenuChat(); else cerrarMenuChat(true); });
+  botonSala.addEventListener('click', function () { if (menuChat.hidden) abrirMenuChat(botonSala); else cerrarMenuChat(true); });
+  botonMuroMenu.addEventListener('click', function () { if (menuChat.hidden) abrirMenuChat(botonMuroMenu); else cerrarMenuChat(true); });
   document.addEventListener('click', function (e) {
-    if (!menuChat.hidden && !menuChat.contains(e.target) && !botonSala.contains(e.target)) cerrarMenuChat(false);
+    if (!menuChat.hidden && !menuChat.contains(e.target) && !botonMenuChat.contains(e.target)) cerrarMenuChat(false);
   });
   menuChat.addEventListener('keydown', function (e) {
     var items = Array.prototype.slice.call(menuChat.querySelectorAll('button:not([hidden])'));
