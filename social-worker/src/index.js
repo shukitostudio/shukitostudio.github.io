@@ -38,7 +38,7 @@ const CLAVE_ARCHIVO = /^[a-f0-9]{40}$/;
 const MAX_SUBIDA = 8 * 1024 * 1024;        // el más grande de todos (video)
 
 // ---------- Reacciones a los mensajes ----------
-const REACCIONES = ["👍", "❤️", "😢", "😡"];
+const REACCIONES = ["👍", "❤️", "😢", "😡", "😂"];
 
 // ---------- Traducir (Workers AI, binding AI) ----------
 const MODELO_TRADUCIR = "@cf/meta/m2m100-1.2b";

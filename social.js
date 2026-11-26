@@ -285,7 +285,27 @@
     boton.focus();
   }
   boton.addEventListener('click', abrir);
-  $('social-cerrar').addEventListener('click', function () { cerrar(false); });
+  // La X es una salida de emergencia: cierra el chat, cierra la sesión en este teléfono y borra de la
+  // pantalla todo lo que se veía. Para volver hay que entrar otra vez con el PIN y la clave del grupo.
+  function salidaEmergencia() {
+    cerrar(false);
+    if (!sesion) return;
+    if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ t: 'salir' })); } catch (e) { /* nada */ } }
+    terminarSesion('');
+    caja.value = '';
+    ajustarCaja();
+    $('social-medio-texto').value = '';
+    ['social-lista-chats', 'social-lista-contactos', 'social-admin-usuarios', 'social-admin-chats', 'social-medio-previa',
+      'social-muro-avatar', 'social-muro-nombre', 'social-muro-estado', 'social-muro-presencia',
+      'social-sala-avatar', 'social-sala-nombre', 'social-sala-detalle', 'social-mi-avatar-img', 'social-mi-nombre',
+      'social-mi-estado', 'social-escribiendo', 'social-estado'].forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      el.textContent = '';
+      if (/avatar/.test(id)) el.style.background = '';
+    });
+  }
+  $('social-cerrar').addEventListener('click', salidaEmergencia);
   window.addEventListener('popstate', function () { if (abierto) cerrar(true); });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
@@ -380,6 +400,8 @@
         $('social-pin').value = '';
         salaActual = GENERAL;
         mostrarChat();
+        // Al entrar se ve la lista de chats: la conversación se busca ahí (nunca se abre sola).
+        abrirPanel('chats');
         conectar();
         return;
       }
@@ -2001,7 +2023,7 @@
   }
 
   /* ---------- Reacciones 👍 ❤️ 😢 😡 (una por persona y mensaje) ---------- */
-  var REACCIONES = ['👍', '❤️', '😢', '😡'];
+  var REACCIONES = ['👍', '❤️', '😢', '😡', '😂'];
   var reaccionesDe = {};        // id del mensaje -> {nombre en minúsculas: {n, e}}
   var selector = $('social-reaccionar');
   var selectorId = 0, selectorFila = null;
@@ -2057,44 +2079,38 @@
     if (hay) b.appendChild(cajaR);
   }
 
-  // Mantener pulsado (o clic derecho en la computadora) abre el selector.
+  // Botoncito con una carita en cada mensaje (junto a la hora): abre la barra de reacciones.
+  var botonCaritaActivo = null;
+  var CARITA = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="12.5" r="8" fill="none" stroke="currentColor" stroke-width="1.9"/>'
+    + '<circle cx="8.4" cy="10.6" r="1.2" fill="currentColor"/><circle cx="13.6" cy="10.6" r="1.2" fill="currentColor"/>'
+    + '<path d="M7.6 14.4c.9 1.5 2 2.2 3.4 2.2s2.5-.7 3.4-2.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
+    + '<path d="M20 1.8v5M17.5 4.3h5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>';
   function prepararReaccion(fila, id) {
-    var b = fila.querySelector('.social-burbuja');
-    var reloj = null, x0 = 0, y0 = 0, largo = false;
-    function soltar() { clearTimeout(reloj); reloj = null; }
-    b.addEventListener('pointerdown', function (e) {
-      if (e.button > 0 || e.target.closest('.social-reacciones, .social-traducir, .social-papelera, audio, video')) return;
-      largo = false; x0 = e.clientX; y0 = e.clientY;
-      soltar();
-      reloj = setTimeout(function () {
-        reloj = null;
-        largo = true;
-        abrirSelectorReaccion(fila, id);
-      }, 450);
+    var pie = fila.querySelector('.social-pie');
+    var bt = document.createElement('button');
+    bt.type = 'button';
+    bt.className = 'social-carita';
+    bt.setAttribute('aria-haspopup', 'menu');
+    bt.setAttribute('aria-expanded', 'false');
+    bt.setAttribute('aria-controls', 'social-reaccionar');
+    bt.setAttribute('aria-label', t('socialReaccionar'));
+    bt.title = t('socialReaccionar');
+    bt.innerHTML = CARITA;
+    bt.addEventListener('click', function () {
+      if (botonCaritaActivo === bt) cerrarSelectorReaccion(true);
+      else abrirSelectorReaccion(fila, id, bt);
     });
-    b.addEventListener('pointermove', function (e) {
-      if (reloj && Math.abs(e.clientX - x0) + Math.abs(e.clientY - y0) > 10) soltar();
-    });
-    b.addEventListener('pointerup', soltar);
-    b.addEventListener('pointercancel', soltar);
-    b.addEventListener('pointerleave', soltar);
-    b.addEventListener('contextmenu', function (e) {
-      if (e.target.closest('audio, video')) return;
-      e.preventDefault();
-      if (selectorId !== id) abrirSelectorReaccion(fila, id);
-    });
-    // Tras mantener pulsado, el toque que sigue no abre la foto ni otra cosa.
-    b.addEventListener('click', function (e) {
-      if (largo) { e.preventDefault(); e.stopPropagation(); largo = false; }
-    }, true);
+    pie.insertBefore(bt, pie.querySelector('time'));
   }
 
-  function abrirSelectorReaccion(fila, id) {
+  function abrirSelectorReaccion(fila, id, bt) {
     if (!fila.isConnected) return;
     cerrarSelectorReaccion();
     cerrarMenuAdjuntar(false);
     selectorId = id;
     selectorFila = fila;
+    botonCaritaActivo = bt;
+    bt.setAttribute('aria-expanded', 'true');
     fila.classList.add('reaccionando');
     var mia = miReaccion(id);
     Array.prototype.forEach.call(selector.querySelectorAll('button'), function (bt) {
@@ -2111,16 +2127,18 @@
     izq = Math.max(6, Math.min(izq, vista.width - ancho - 6));
     selector.style.top = Math.round(arriba) + 'px';
     selector.style.left = Math.round(izq) + 'px';
-    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* nada */ } }
     (selector.querySelector('[aria-checked="true"]') || selector.querySelector('button')).focus({ preventScroll: true });
   }
   function cerrarSelectorReaccion(devolverFoco) {
     if (selector.hidden) return;
     selector.hidden = true;
     if (selectorFila) selectorFila.classList.remove('reaccionando');
+    var bt = botonCaritaActivo;
+    if (bt) bt.setAttribute('aria-expanded', 'false');
     selectorId = 0;
     selectorFila = null;
-    if (devolverFoco) caja.focus();
+    botonCaritaActivo = null;
+    if (devolverFoco && bt && bt.isConnected) bt.focus({ preventScroll: true });
   }
   selector.addEventListener('click', function (e) {
     var bt = e.target.closest('button');
@@ -2137,7 +2155,7 @@
     else if (e.key === 'Tab') cerrarSelectorReaccion();
   });
   document.addEventListener('pointerdown', function (e) {
-    if (!selector.hidden && !selector.contains(e.target)) cerrarSelectorReaccion();
+    if (!selector.hidden && !selector.contains(e.target) && !(botonCaritaActivo && botonCaritaActivo.contains(e.target))) cerrarSelectorReaccion();
   });
   lista.addEventListener('scroll', function () { cerrarSelectorReaccion(); }, { passive: true });
 
