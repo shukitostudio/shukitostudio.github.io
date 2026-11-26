@@ -81,6 +81,8 @@
   boton.hidden = false;
 
   var sesion = leerSesion();
+  var CLAVE_BLOQUEO = 'shukito-social-bloqueo';
+  var bloqueado = !!sesion && leer(CLAVE_BLOQUEO) === '1'; // después de la X: el chat pide el PIN
   var ws = null, reintento = 0, temporizador = null, latido = null;
   var chats = {};             // sala -> {mensajes: [{id, sala, nombre, texto, ts}], escribiendo: {nombre: hora límite}}
   var lecturas = {};          // sala -> {nombre en minúsculas: último id leído}
@@ -259,7 +261,8 @@
     raiz.hidden = false;
     document.documentElement.classList.add('social-abierto');
     iphoneAjustar();
-    if (sesion) { mostrarChat(); conectar(); marcarLeido(); actualizarAsterisco(); }
+    if (sesion && bloqueado) { mostrarCandado(); conectar(); }
+    else if (sesion) { mostrarChat(); conectar(); marcarLeido(); actualizarAsterisco(); }
     else { mostrarEntrar(errorPendiente); errorPendiente = ''; }
   }
   function cerrar(desdeAtras) {
@@ -268,6 +271,7 @@
     cerrarMenu(false);
     cerrarVentanaAvatar();
     cerrarVentanaAdmin();
+    cerrarVentanaPin();
     cancelarEstado();
     cerrarPanel(false);
     cerrarMenuChat(false);
@@ -287,11 +291,14 @@
   boton.addEventListener('click', abrir);
   // La X es una salida de emergencia: cierra el chat, cierra la sesión en este teléfono y borra de la
   // pantalla todo lo que se veía. Para volver hay que entrar otra vez con el PIN y la clave del grupo.
+  // La X es una salida de emergencia: vuelve a la página principal y borra de la pantalla lo que se veía.
+  // La sesión sigue abierta, pero el chat queda con candado (también al recargar): para volver se pide el
+  // PIN. Con un PIN equivocado solo se ve una pantalla vacía. Mientras tanto no hay avisos de mensajes.
   function salidaEmergencia() {
+    if (sesion) { bloqueado = true; guardar(CLAVE_BLOQUEO, '1'); }
     cerrar(false);
-    if (!sesion) return;
-    if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ t: 'salir' })); } catch (e) { /* nada */ } }
-    terminarSesion('');
+    if (!bloqueado) return;
+    lista.textContent = '';
     caja.value = '';
     ajustarCaja();
     $('social-medio-texto').value = '';
@@ -304,13 +311,63 @@
       el.textContent = '';
       if (/avatar/.test(id)) el.style.background = '';
     });
+    actualizarAsterisco();
   }
+
+  // ---------- Candado (después de la X) ----------
+  var candado = $('social-candado'), falso = $('social-falso');
+  var esperaCandado = null;
+  function mostrarCandado() {
+    formEntrar.hidden = true;
+    chat.hidden = true;
+    barraPerfil.hidden = true;
+    falso.hidden = true;
+    candado.hidden = false;
+    estadoTxt.textContent = '';
+    ponerVista();
+    $('social-candado-pin').value = '';
+    $('social-candado-error').textContent = '';
+    $('social-candado-entrar').disabled = false;
+    setTimeout(function () { if (!candado.hidden) $('social-candado-pin').focus(); }, 50);
+  }
+  function mostrarFalso() {
+    clearTimeout(esperaCandado);
+    candado.hidden = true;
+    falso.hidden = false;
+    $('social-candado-pin').value = '';
+  }
+  function desbloqueado(ok) {
+    clearTimeout(esperaCandado);
+    if (!bloqueado || candado.hidden) return;
+    if (!ok) { mostrarFalso(); return; }
+    bloqueado = false;
+    quitar(CLAVE_BLOQUEO);
+    candado.hidden = true;
+    mostrarChat();
+    abrirPanel('chats');   // se ve la lista: la conversación se busca ahí
+    actualizarAsterisco();
+  }
+  $('social-candado-pin').addEventListener('input', function () { this.value = this.value.replace(/\D/g, '').slice(0, 6); });
+  candado.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var pin = $('social-candado-pin').value;
+    if (!/^[0-9]{4,6}$/.test(pin)) { mostrarFalso(); return; }
+    if (!ws || ws.readyState !== 1) { $('social-candado-error').textContent = t('socialErrRed'); conectar(); return; }
+    $('social-candado-error').textContent = '';
+    $('social-candado-entrar').disabled = true;
+    ws.send(JSON.stringify({ t: 'desbloquear', pin: pin }));
+    esperaCandado = setTimeout(function () {
+      $('social-candado-entrar').disabled = false;
+      $('social-candado-error').textContent = t('socialErrRed');
+    }, 10000);
+  });
   $('social-cerrar').addEventListener('click', salidaEmergencia);
   window.addEventListener('popstate', function () { if (abierto) cerrar(true); });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     if (!priv.hidden) cerrarPrivacidad();
     else if (!ventanaAvatar.hidden) cerrarVentanaAvatar();
+    else if (!ventanaPin.hidden) cerrarVentanaPin();
     else if (!ventanaAdmin.hidden) cerrarVentanaAdmin();
     else if (!$('social-visor').hidden) cerrarVisor();
     else if (!$('social-ventana-medio').hidden) cerrarVentanaMedio();
@@ -328,6 +385,8 @@
     chat.hidden = true;
     barraPerfil.hidden = true;
     formEntrar.hidden = false;
+    candado.hidden = true;
+    falso.hidden = true;
     ponerVista();
     estadoTxt.textContent = '';
     var ultimo = leer(CLAVE_NOMBRE);
@@ -338,6 +397,8 @@
   }
   function mostrarChat() {
     formEntrar.hidden = true;
+    candado.hidden = true;
+    falso.hidden = true;
     chat.hidden = false;
     barraPerfil.hidden = false;
     ponerVista();
@@ -433,12 +494,15 @@
     cerrarMenu(false);
     cerrarVentanaAvatar();
     cerrarVentanaAdmin();
+    cerrarVentanaPin();
     cerrarVentanaMedio();
     cancelarGrabacion();
     cerrarVisor();
     soltarArchivos();
     traducciones = {}; verTraduccion = {}; traduciendo = {};
     reaccionesDe = {};
+    bloqueado = false;
+    quitar(CLAVE_BLOQUEO);
     cerrarSelectorReaccion();
     cerrarMenuAdjuntar(false);
     cancelarEstado();
@@ -713,7 +777,7 @@
 
   // Un chat se está "viendo" si el chat Social está abierto, sin panel encima, en esa sala y con la página visible.
   function salaVista(sala) {
-    return abierto && !panel && document.visibilityState === 'visible' && sala === salaActual;
+    return abierto && !bloqueado && !chat.hidden && !panel && document.visibilityState === 'visible' && sala === salaActual;
   }
   function totalNoLeidos() {
     var n = 0;
@@ -722,7 +786,7 @@
   }
   // Asterisco rojo en el botón Chats y en el botón Social de la portada; número en el título de la pestaña.
   function actualizarAsterisco() {
-    var total = sesion ? totalNoLeidos() : 0;
+    var total = sesion && !bloqueado ? totalNoLeidos() : 0;
     var hay = total > 0;
     $('social-asterisco-chats').hidden = !hay;
     $('social-asterisco-portada').hidden = !hay;
@@ -937,11 +1001,20 @@
     }
     otros.forEach(function (n) {
       var p = perfiles[n];
-      ulU.appendChild(filaAdmin(null, n, p.n, enLinea(n) ? t('socialEnLineaAhora') : t('socialDesconectado'),
+      var filaU = filaAdmin(null, n, p.n, enLinea(n) ? t('socialEnLineaAhora') : t('socialDesconectado'),
         t('socialAdminSacar'), t('socialAdminSacarEtiqueta', { n: p.n }), function () {
           if (!window.confirm(t('socialAdminSacarConfirmar', { n: p.n }))) return;
           if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_sacar', n: p.n }));
-        }, enLinea(n)));
+        }, enLinea(n));
+      // Restablecer el PIN (para quien lo olvidó)
+      var bPin = document.createElement('button');
+      bPin.type = 'button';
+      bPin.className = 'social-boton secundario chico';
+      bPin.textContent = t('socialAdminPin');
+      bPin.setAttribute('aria-label', t('socialAdminPinEtiqueta', { n: p.n }));
+      bPin.addEventListener('click', function () { abrirVentanaPin(p.n, bPin); });
+      filaU.insertBefore(bPin, filaU.lastChild);
+      ulU.appendChild(filaU);
     });
 
     // Chats con mensajes. De los privados solo se ve quiénes y cuántos mensajes.
@@ -964,6 +1037,39 @@
       }));
     });
   }
+
+  // Ventana para restablecer el PIN de alguien (solo administrador).
+  var ventanaPin = $('social-ventana-pin');
+  var pinDe = '', pinVolverA = null;
+  function abrirVentanaPin(nombre, desde) {
+    pinDe = nombre;
+    pinVolverA = desde || null;
+    $('social-ventana-pin-titulo').textContent = t('socialAdminPinEtiqueta', { n: nombre });
+    $('social-admin-pin-nuevo').value = '';
+    $('social-admin-pin-error').textContent = '';
+    $('social-admin-pin-guardar').disabled = false;
+    ventanaPin.hidden = false;
+    $('social-admin-pin-nuevo').focus();
+  }
+  function cerrarVentanaPin() {
+    if (ventanaPin.hidden) return;
+    ventanaPin.hidden = true;
+    $('social-admin-pin-nuevo').value = '';
+    if (pinVolverA && pinVolverA.isConnected) pinVolverA.focus();
+    pinVolverA = null;
+  }
+  $('social-admin-pin-nuevo').addEventListener('input', function () { this.value = this.value.replace(/\D/g, '').slice(0, 6); });
+  $('social-admin-pin-cancelar').addEventListener('click', cerrarVentanaPin);
+  ventanaPin.addEventListener('click', function (e) { if (e.target === ventanaPin) cerrarVentanaPin(); });
+  $('social-form-pin').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var pin = $('social-admin-pin-nuevo').value;
+    if (!/^[0-9]{4,6}$/.test(pin)) { $('social-admin-pin-error').textContent = t('socialErrPin'); $('social-admin-pin-nuevo').focus(); return; }
+    if (!ws || ws.readyState !== 1) { $('social-admin-pin-error').textContent = t('socialErrRed'); return; }
+    $('social-admin-pin-error').textContent = '';
+    $('social-admin-pin-guardar').disabled = true;
+    ws.send(JSON.stringify({ t: 'admin_pin', n: pinDe, pin: pin }));
+  });
 
   function filaAdmin(sala, nombreMinus, titulo, detalle, textoBoton, etiquetaBoton, alTocar, punto) {
     var li = document.createElement('li');
@@ -1069,7 +1175,7 @@
   });
 
   function avisar(m) {
-    if (!sesion || minus(m.nombre) === yoMinus()) return;
+    if (!sesion || bloqueado || minus(m.nombre) === yoMinus()) return;
     if (salaVista(m.sala) || mensajeSilenciado(m)) return;
     var ahora = Date.now();
     if (avisos.sonido && ahora - ultimoSonido > 1500) { ultimoSonido = ahora; sonar(); }
@@ -1431,20 +1537,22 @@
     else if (e.key === 'Tab') cerrarMenuAdjuntar(false);
   });
   // El selector de archivos se abre dentro del mismo toque (si no, el teléfono lo bloquea).
-  [['social-op-galeria', 'social-archivo'], ['social-op-camara-foto', 'social-camara-foto'], ['social-op-camara-video', 'social-camara-video']]
+  // [botón del menú, selector de archivos, qué se pidió (por si el teléfono no dice el tipo del archivo)]
+  [['social-op-galeria', 'social-archivo', 'foto'], ['social-op-galeria-video', 'social-galeria-video', 'video'],
+    ['social-op-camara-foto', 'social-camara-foto', 'foto'], ['social-op-camara-video', 'social-camara-video', 'video']]
     .forEach(function (par) {
       $(par[0]).addEventListener('click', function () { cerrarMenuAdjuntar(false); $(par[1]).click(); });
       $(par[1]).addEventListener('change', function () {
         var archivo = this.files && this.files[0];
         this.value = '';
-        if (archivo) elegirArchivo(archivo);
+        if (archivo) elegirArchivo(archivo, par[2]);
       });
     });
   $('social-op-audio').addEventListener('click', function () { cerrarMenuAdjuntar(false); $('social-microfono').click(); });
 
-  function elegirArchivo(archivo) {
+  function elegirArchivo(archivo, pista) {
     if (!M) return;
-    var tipo = M.clase(archivo);
+    var tipo = M.clase(archivo, pista);
     if (!tipo) { mostrarAviso(t('socialErrFormato')); return; }
     abrirVentanaMedio(tipo);
     var marca = {};
@@ -1476,33 +1584,43 @@
     }
     // Video: primero se muestra tal cual; se prepara al tocar "Enviar" (ver más abajo).
     estadoMedio(t('socialAbriendoVideo'));
-    M.abrirVideo(archivo).then(function (ab) {
+    M.abrirVideo(archivo, previa, pista).then(function (ab) {
       if (preparando !== marca) { ab.soltar(); return; }
       preparando = null;
-      medioPendiente = { tipo: 'video', sala: sala, abierto: ab, inicio: 0 };
+      var medio = { tipo: 'video', sala: sala, abierto: ab, inicio: 0 };
+      medioPendiente = medio;
       var v = ab.video;
-      v.controls = true;
       v.className = 'social-previa-video';
-      previa.appendChild(v);
       var seg = M.VIDEO_SEG;
-      var largo = ab.dur > seg + 0.5;
       var trozo = $('social-medio-trozo'), desde = $('social-medio-desde');
-      trozo.hidden = !largo;
       function pintarTrozo() {
-        var a = medioPendiente.inicio, b = Math.min(ab.dur, a + seg);
+        var total = ab.dur, a = medio.inicio, b = Math.min(total, a + seg);
         $('social-medio-trozo-texto').textContent = t('socialVideoTrozo', { a: duracion(Math.floor(a)), b: duracion(Math.round(b)) });
       }
-      if (largo) {
-        desde.max = String(Math.max(0, Math.floor((ab.dur - seg) * 2) / 2));
-        desde.value = '0';
-        desde.oninput = function () {
-          medioPendiente.inicio = Number(desde.value) || 0;
-          try { v.pause(); v.currentTime = medioPendiente.inicio; } catch (e) { /* nada */ }
+      // Con la duración conocida: si pasa de 15 s, se elige el trozo. Si Safari aún no la dio, se espera
+      // a que la dé (por ejemplo, al tocar play en la vista previa); si no, se envían los primeros 15 s.
+      function conDuracion() {
+        if (medioPendiente !== medio || medio.blob) return;
+        if (!ab.dur && isFinite(v.duration) && v.duration > 0) ab.dur = v.duration;
+        var largo = ab.dur > seg + 0.5;
+        trozo.hidden = !largo || !!conversion;
+        if (largo) {
+          desde.max = String(Math.max(0, Math.floor((ab.dur - seg) * 2) / 2));
+          if (Number(desde.value) > Number(desde.max)) desde.value = desde.max;
+          desde.oninput = function () {
+            medio.inicio = Number(desde.value) || 0;
+            try { v.pause(); v.currentTime = medio.inicio; } catch (e) { /* nada */ }
+            pintarTrozo();
+          };
           pintarTrozo();
-        };
-        pintarTrozo();
+        }
+        estadoMedio(ab.dur
+          ? t('socialVideoListo', { d: duracion(Math.round(Math.min(ab.dur, seg))) })
+          : t('socialVideoListoSinDur', { s: seg }));
       }
-      estadoMedio(t('socialVideoListo', { d: duracion(Math.round(Math.min(ab.dur, seg))) }));
+      if (!ab.dur) v.addEventListener('durationchange', function () { if (!conversion) conDuracion(); });
+      desde.value = '0';
+      conDuracion();
       $('social-medio-consejo').textContent = t('socialVideoConsejo');
       $('social-medio-consejo').hidden = false;
       $('social-medio-enviar').disabled = false;
@@ -1762,6 +1880,7 @@
     } else if (m.t === 'admin_ok') {
       if (m.accion === 'clave') { $('social-admin-clave-nueva').value = ''; avisoAdmin(t('socialAdminClaveCambiada')); }
       else if (m.accion === 'sacar') avisoAdmin(t('socialAdminSacadoOk', { n: m.n }));
+      else if (m.accion === 'pin') { cerrarVentanaPin(); avisoAdmin(t('socialAdminPinOk', { n: m.n })); }
       else if (m.accion === 'chat') avisoAdmin(t('socialAdminChatBorradoOk'));
       else if (m.accion === 'mensaje') mostrarAviso(t('socialAdminMsgBorradoOk'));
     } else if (m.t === 'borrado') {
@@ -1806,7 +1925,7 @@
     } else if (m.t === 'estado') {
       usuarios = m.usuarios || [];
       var cuantos = usuarios.filter(function (u) { return u.enLinea; }).length;
-      estadoTxt.textContent = t('socialEnLineaCuenta', { n: cuantos });
+      if (!bloqueado) estadoTxt.textContent = t('socialEnLineaCuenta', { n: cuantos });
       pintarCabeceraSala();
       refrescarListas();
       actualizarMarcas();
@@ -1843,6 +1962,8 @@
       avisar(mm);
       actualizarAsterisco();
       refrescarListas();
+    } else if (m.t === 'desbloqueo') {
+      desbloqueado(!!m.ok);
     } else if (m.t === 'reaccion') {
       ponerReaccion(m.id, m.n, m.e);
       if ((m.sala || GENERAL) === salaActual) {
@@ -1884,6 +2005,8 @@
       }
       // Errores del administrador
       var minutosA = Math.max(1, Math.ceil((m.espera || 600) / 60));
+      if (m.e === 'admin_pin') { $('social-admin-pin-error').textContent = t('socialErrPin'); $('social-admin-pin-guardar').disabled = false; }
+      if (!ventanaPin.hidden) $('social-admin-pin-guardar').disabled = false;
       if (m.e === 'admin_clave') $('social-admin-error').textContent = t('socialAdminErrClave', { n: m.quedan });
       else if (m.e === 'admin_bloqueado') $('social-admin-error').textContent = t('socialErrBloqueado', { m: minutosA });
       else if (m.e === 'sin_admin') $('social-admin-error').textContent = t('socialAdminErrSinClave');
@@ -2181,7 +2304,7 @@
 
   // Marca como leído el chat abierto (solo si se está viendo: página visible y sin panel encima).
   function marcarLeido() {
-    if (!abierto || panel || document.visibilityState !== 'visible' || !ws || ws.readyState !== 1) return;
+    if (!abierto || bloqueado || chat.hidden || panel || document.visibilityState !== 'visible' || !ws || ws.readyState !== 1) return;
     var u = ultimo(salaActual);
     if (!u || leidoPor(salaActual, yoMinus()) >= u.id) { actualizarAsterisco(); return; }
     ponerLectura(salaActual, sesion.nombre, u.id);

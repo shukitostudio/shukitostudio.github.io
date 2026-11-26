@@ -36,12 +36,16 @@
   function aBlob(lienzo, tipo, calidad) {
     return new Promise(function (ok) { lienzo.toBlob(function (b) { ok(b); }, tipo, calidad); });
   }
-  function clase(archivo) {
+  // "pista": lo que pedía el botón ('video' o 'foto'), por si el teléfono no dice el tipo del archivo.
+  function clase(archivo, pista) {
     var tipo = base(archivo && archivo.type), nombre = (archivo && archivo.name) || '';
     if (/^video\//.test(tipo)) return 'video';
     if (/^image\//.test(tipo)) return 'foto';
-    if (!tipo && EXT_VIDEO.test(nombre)) return 'video';
-    if (!tipo && EXT_FOTO.test(nombre)) return 'foto';
+    if (!tipo || tipo === 'application/octet-stream') {
+      if (EXT_VIDEO.test(nombre)) return 'video';
+      if (EXT_FOTO.test(nombre)) return 'foto';
+      if (pista) return pista;
+    }
     return '';
   }
 
@@ -87,41 +91,48 @@
      Paso 2 (convertirVideo): al tocar "Enviar" se vuelve a grabar en tiempo real, a 640 px, como máximo
      15 segundos, en MP4 H.264. Tiene que empezar DENTRO del toque: Safari solo deja reproducir con
      sonido después de un toque (y en modo de bajo consumo, nada sin un toque). */
-  function abrirVideo(archivo) {
+  // Duración del video si ya se conoce; 0 si todavía no (Safari a veces no la da hasta reproducir).
+  function duracionDe(v) { return isFinite(v.duration) && v.duration > 0 ? v.duration : 0; }
+
+  // "contenedor": donde se muestra la vista previa. El video se pone en la página desde el principio:
+  // en el iPhone, Safari a veces no lee nada de un video que no está en pantalla.
+  function abrirVideo(archivo, contenedor, pista) {
     return new Promise(function (ok, mal) {
-      if (clase(archivo) !== 'video') { mal('formato'); return; }
+      if (clase(archivo, pista) !== 'video') { mal('formato'); return; }
       var url = URL.createObjectURL(archivo);
       var v = document.createElement('video');
       v.playsInline = true;
       v.setAttribute('playsinline', '');
       v.setAttribute('webkit-playsinline', '');
-      v.preload = 'auto';
+      v.preload = 'metadata';
+      v.controls = true;
       v.muted = false;
+      if (contenedor) contenedor.appendChild(v);
       var listo = false;
-      var espera = setTimeout(function () { if (!listo) { listo = true; soltar(); mal('abrir'); } }, 20000);
-      function soltar() { v.removeAttribute('src'); try { v.load(); } catch (e) { /* nada */ } URL.revokeObjectURL(url); }
-      v.onerror = function () { if (listo) return; listo = true; clearTimeout(espera); soltar(); mal('abrir'); };
-      v.onloadedmetadata = function () {
-        // Safari a veces da la duración "Infinity" al principio: se pide el final para que la calcule.
-        if (!isFinite(v.duration)) { v.currentTime = 1e7; return; }
-        terminar();
-      };
-      v.ondurationchange = function () { if (isFinite(v.duration) && v.duration > 0 && v.videoWidth) terminar(); };
+      function soltar() {
+        v.removeAttribute('src');
+        try { v.load(); } catch (e) { /* nada */ }
+        URL.revokeObjectURL(url);
+        if (v.parentNode) v.parentNode.removeChild(v);
+      }
       function terminar() {
         if (listo) return;
         listo = true;
         clearTimeout(espera);
-        v.onloadedmetadata = v.ondurationchange = v.onerror = null;
-        if (!v.videoWidth || !v.videoHeight) { soltar(); mal('abrir'); return; }
-        if (v.currentTime > 0.1) v.currentTime = 0;
-        ok({
-          video: v,
-          url: url,
-          dur: isFinite(v.duration) && v.duration > 0 ? v.duration : VIDEO_SEG,
-          soltar: soltar,
-          original: archivo
-        });
+        ok({ video: v, url: url, dur: duracionDe(v), soltar: soltar, original: archivo });
       }
+      // Si en 4 segundos Safari no dio la información, se sigue igual: se lee al tocar "Enviar".
+      var espera = setTimeout(terminar, 4000);
+      v.onerror = function () {
+        if (listo) return;
+        listo = true;
+        clearTimeout(espera);
+        soltar();
+        mal('abrir');
+      };
+      v.onloadedmetadata = function () {
+        if (duracionDe(v)) terminar(); else setTimeout(terminar, 1500);
+      };
       v.src = url;
       try { v.load(); } catch (e) { /* nada */ }
     });
@@ -133,16 +144,17 @@
     var cancelado = false, actual = null;
     var promesa = new Promise(function (ok, mal) {
       var mime = elegirTipo(TIPOS_VIDEO);
+      var total = duracionDe(v) || abierto.dur || 0;   // 0: todavía no se sabe
       if (mime === null || !puedePrepararVideo()) {
         // Navegador sin grabador: se manda el original solo si ya es MP4 corto y liviano.
         var o = abierto.original;
-        if (base(o.type) === 'video/mp4' && o.size <= VIDEO_MAX && abierto.dur <= VIDEO_SEG + 0.5) {
-          ok({ blob: o, mime: 'video/mp4', ancho: v.videoWidth, alto: v.videoHeight, dur: Math.max(1, Math.round(abierto.dur)) });
+        if (base(o.type) === 'video/mp4' && o.size <= VIDEO_MAX && total && total <= VIDEO_SEG + 0.5) {
+          ok({ blob: o, mime: 'video/mp4', ancho: v.videoWidth, alto: v.videoHeight, dur: Math.max(1, Math.round(total)) });
         } else mal('sin_grabador');
         return;
       }
-      inicio = Math.max(0, Math.min(inicio || 0, Math.max(0, abierto.dur - 0.5)));
-      var limite = Math.min(VIDEO_SEG, abierto.dur - inicio);
+      inicio = total ? Math.max(0, Math.min(inicio || 0, Math.max(0, total - 0.5))) : 0;
+      var limite = total ? Math.min(VIDEO_SEG, total - inicio) : VIDEO_SEG;
 
       // Sonido: pasa del video al grabador sin salir por el altavoz. Se crea ahora (dentro del toque).
       var sonido = null;
@@ -174,7 +186,7 @@
           if (cancelado) return;
           if (res.blob.size > VIDEO_MAX && n + 1 < VIDEO_INTENTOS.length) { intento(n + 1); return; }
           if (res.blob.size > VIDEO_MAX) { mal('grande'); return; }
-          res.cortado = abierto.dur > VIDEO_SEG + 0.5;
+          res.cortado = (duracionDe(v) || total) > VIDEO_SEG + 0.5;
           ok(res);
         }, function (motivo) { if (!cancelado) mal(motivo); });
       }
@@ -190,25 +202,37 @@
   function grabarTrozo(v, sonido, mime, ajustes, inicio, limite, yaReproduciendo, alProgreso) {
     var rec = null, terminado = false, cancelar = null;
     var p = new Promise(function (ok, mal) {
-      var w = v.videoWidth, h = v.videoHeight;
-      var esc = Math.min(1, ajustes.lado / Math.max(w, h));
-      var cw = Math.max(2, Math.round(w * esc / 2) * 2), ch = Math.max(2, Math.round(h * esc / 2) * 2);
-      var lienzo = document.createElement('canvas');
-      lienzo.width = cw; lienzo.height = ch;
-      var ctx = lienzo.getContext('2d');
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, cw, ch);
-      var flujo = lienzo.captureStream(30);
-      if (sonido && sonido.destino) sonido.destino.stream.getAudioTracks().forEach(function (pista) { flujo.addTrack(pista); });
+      // El lienzo y el grabador se arman cuando el video ya se reproduce: recién ahí Safari da su tamaño.
+      var cw = 0, ch = 0, ctx = null;
       var trozos = [];
       var opciones = { videoBitsPerSecond: ajustes.bits, audioBitsPerSecond: ajustes.audio };
       if (mime) opciones.mimeType = mime;
-      var vigia = null, ultimoTiempo = -1, quieto = 0;
+      var vigia = null, ultimoTiempo = -1, quieto = 0, esperaTam = null;
+      function armar() {
+        var w = v.videoWidth, h = v.videoHeight;
+        var esc = Math.min(1, ajustes.lado / Math.max(w, h));
+        cw = Math.max(2, Math.round(w * esc / 2) * 2); ch = Math.max(2, Math.round(h * esc / 2) * 2);
+        var lienzo = document.createElement('canvas');
+        lienzo.width = cw; lienzo.height = ch;
+        ctx = lienzo.getContext('2d');
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, cw, ch);
+        var flujo = lienzo.captureStream(30);
+        if (sonido && sonido.destino) sonido.destino.stream.getAudioTracks().forEach(function (pista) { flujo.addTrack(pista); });
+        try { rec = new MediaRecorder(flujo, opciones); } catch (e) {
+          try { delete opciones.mimeType; rec = new MediaRecorder(flujo, opciones); } catch (e2) { return false; }
+        }
+        rec.ondataavailable = function (e) { if (e.data && e.data.size) trozos.push(e.data); };
+        rec.onerror = function () { salir('sin_grabador'); };
+        rec.onstop = alParar;
+        return true;
+      }
 
       function salir(motivo, res) {
         if (terminado) return;
         terminado = true;
         clearInterval(vigia);
+        clearTimeout(esperaTam);
         document.removeEventListener('visibilitychange', alOcultar);
         v.removeEventListener('ended', parar);
         try { v.pause(); } catch (e) { /* nada */ }
@@ -221,12 +245,7 @@
       function alOcultar() { if (document.visibilityState === 'hidden') salir('interrumpido'); }
       document.addEventListener('visibilitychange', alOcultar);
 
-      try { rec = new MediaRecorder(flujo, opciones); } catch (e) {
-        try { delete opciones.mimeType; rec = new MediaRecorder(flujo, opciones); } catch (e2) { salir('sin_grabador'); return; }
-      }
-      rec.ondataavailable = function (e) { if (e.data && e.data.size) trozos.push(e.data); };
-      rec.onerror = function () { salir('sin_grabador'); };
-      rec.onstop = function () {
+      function alParar() {
         if (terminado) return;
         var tipo = base(rec.mimeType || mime || 'video/webm');
         var dur = Math.max(1, Math.round(Math.min(limite, (v.currentTime || 0) - inicio)));
@@ -234,7 +253,7 @@
         var blob = new Blob(trozos, { type: tipo });
         if (!blob.size) { salir('formato'); return; }
         salir(null, { blob: blob, mime: tipo, ancho: cw, alto: ch, dur: dur });
-      };
+      }
       function parar() {
         if (rec && rec.state === 'recording') { try { v.pause(); } catch (e) { /* nada */ } rec.stop(); }
       }
@@ -251,6 +270,22 @@
       }
       function empezar() {
         if (terminado) return;
+        if (!v.videoWidth || !v.videoHeight) {
+          // Todavía sin imagen: se espera un poco (máximo 5 segundos) antes de avisar.
+          if (!esperaTam) {
+            var alTener = function () { v.removeEventListener('loadeddata', alTener); v.removeEventListener('resize', alTener); empezar(); };
+            v.addEventListener('loadeddata', alTener);
+            v.addEventListener('resize', alTener);
+            esperaTam = setTimeout(function () { if (!v.videoWidth) salir('abrir'); }, 5000);
+          }
+          return;
+        }
+        clearTimeout(esperaTam);
+        if (rec) return; // ya empezó
+        // Ahora sí se sabe cuánto dura: el trozo no pasa del final ni de 15 segundos.
+        var total = duracionDe(v);
+        if (total) limite = Math.max(0.5, Math.min(limite, total - inicio));
+        if (!armar()) { salir('sin_grabador'); return; }
         // Sin "timeslice": Safari arma mejor el MP4 si lo entrega entero al final.
         try { rec.start(); } catch (e) { salir('sin_grabador'); return; }
         ctx.drawImage(v, 0, 0, cw, ch);
@@ -265,7 +300,10 @@
         }, 1000);
       }
       function reproducir(promesa) {
-        Promise.resolve(promesa).then(empezar, function (e) {
+        // Si el teléfono no empieza a reproducir en 12 segundos, se avisa en vez de quedarse esperando.
+        var arranque = setTimeout(function () { if (!rec) salir('reproducir'); }, 12000);
+        Promise.resolve(promesa).then(function () { clearTimeout(arranque); empezar(); }, function (e) {
+          clearTimeout(arranque);
           // Sin permiso para el sonido: se intenta sin sonido.
           if (e && e.name === 'NotAllowedError' && !v.muted) {
             v.muted = true;

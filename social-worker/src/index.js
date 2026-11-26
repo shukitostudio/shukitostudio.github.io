@@ -793,6 +793,24 @@ export class SalaSocial extends DurableObject {
       return;
     }
 
+    if (m.t === "desbloquear") {
+      // Después de la X (salida de emergencia), el chat se vuelve a abrir con el PIN de esta cuenta.
+      // La respuesta solo dice sí o no (ni cuántos intentos quedan ni si hay bloqueo): con un no, el
+      // teléfono muestra una pantalla vacía. 5 errores bloquean la cuenta 1 hora, como al entrar.
+      const ahora = Date.now();
+      const pin = String(m.pin || "");
+      const u = this.sql.exec("SELECT nombre, pin_hash, pin_sal, fallos, bloqueo FROM usuarios WHERE nombre = ?", yo.nombre).toArray()[0];
+      let bien = false;
+      if (u && u.bloqueo <= ahora) {
+        bien = PIN_VALIDO.test(pin) && iguales(await hashPin(pin, u.pin_sal), u.pin_hash);
+        if (bien) this.sql.exec("UPDATE usuarios SET fallos = 0 WHERE nombre = ?", u.nombre);
+        else if (u.fallos + 1 >= PIN_FALLOS_MAX) this.sql.exec("UPDATE usuarios SET fallos = 0, bloqueo = ? WHERE nombre = ?", ahora + PIN_BLOQUEO, u.nombre);
+        else this.sql.exec("UPDATE usuarios SET fallos = ? WHERE nombre = ?", u.fallos + 1, u.nombre);
+      }
+      this.enviar(ws, { t: "desbloqueo", ok: bien });
+      return;
+    }
+
     if (m.t === "reaccion") {
       // Una reacción por persona y mensaje. La misma otra vez (o "") la quita; otra distinta la cambia.
       const id = Math.floor(Number(m.id) || 0);
@@ -911,6 +929,21 @@ export class SalaSocial extends DurableObject {
       this.ponerAjuste("grupo_hash", await hashPin(nueva, sal));
       // Las personas que ya entraron siguen dentro; la clave nueva se pide al crear usuario o entrar en otro teléfono.
       this.responderAdmin(ws, { t: "admin_ok", accion: "clave" });
+      return;
+    }
+
+    if (m.t === "admin_pin") {
+      // Restablecer el PIN de alguien que lo olvidó. El PIN viejo no se puede ver (solo se guarda su hash):
+      // el administrador pone uno nuevo y se lo da en persona. La cuenta y sus chats se conservan, y se quita
+      // el bloqueo por PIN equivocado. Las sesiones abiertas siguen (así sirve también para el candado de la X).
+      const u = this.sql.exec("SELECT nombre FROM usuarios WHERE nombre = ?", String(m.n || "")).toArray()[0];
+      if (!u) { this.enviar(ws, { t: "error", e: "no_existe" }); return; }
+      const pin = String(m.pin || "");
+      if (!PIN_VALIDO.test(pin)) { this.enviar(ws, { t: "error", e: "admin_pin" }); return; }
+      const sal = aleatorio(16);
+      this.sql.exec("UPDATE usuarios SET pin_hash = ?, pin_sal = ?, fallos = 0, bloqueo = 0 WHERE nombre = ?",
+        await hashPin(pin, sal), sal, u.nombre);
+      this.responderAdmin(ws, { t: "admin_ok", accion: "pin", n: u.nombre });
       return;
     }
 

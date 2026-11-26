@@ -782,3 +782,29 @@ html[data-tema="noche"] .social-barra-progreso {
   .social-barra-relleno { transition: none; }
   .social-barra-relleno::after { animation: none; display: none; }
 }
+
+/* =====================================================================
+   Candado después de la X (pide el PIN) y pantalla vacía (PIN equivocado)
+   ===================================================================== */
+.social-candado, .social-falso {
+  flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; padding: 24px 20px; background: var(--ae-fondo); background-color: var(--so-chat);
+}
+@media (min-width: 681px) { .social-candado, .social-falso { border-radius: 0 0 14px 14px; } }
+.social-candado > * { flex-shrink: 0; }
+.social-candado .social-campo { width: 100%; max-width: 260px; text-align: center; }
+.social-candado input { text-align: center; font-size: 22px; letter-spacing: 8px; }
+.social-candado .social-boton { min-width: 160px; }
+.social-candado .social-error { text-align: center; }
+.social-candado-icono {
+  width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; color: #fff;
+  background: var(--ae-boton); border: 1px solid rgba(10, 60, 130, .8);
+  box-shadow: 0 4px 14px rgba(0, 30, 80, .4), inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+.social-candado-icono svg { width: 30px; height: 30px; filter: drop-shadow(0 1px 1px rgba(0, 30, 80, .5)); }
+.social-candado .social-boton:not(.secundario) {
+  background: var(--ae-boton); color: #fff; border: 1px solid rgba(10, 60, 130, .7);
+  box-shadow: 0 2px 5px rgba(0, 30, 80, .35), inset 0 1px 0 rgba(255, 255, 255, .7);
+  text-shadow: 0 1px 1px rgba(0, 30, 80, .5);
+}
+.social-falso p { margin: 0; font-size: 18px; color: var(--ae-tenue); }
