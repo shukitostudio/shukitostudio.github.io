@@ -53,7 +53,8 @@ const GIF_BUSQUEDAS_MAX = 25;              // búsquedas por persona...
 const GIF_BUSQUEDAS_VENTANA = 10 * 60 * 1000; // ...cada 10 minutos
 const GIF_VALIDO_HORAS = 24;               // un GIF mostrado en el buscador se puede enviar durante 24 horas
 const GIF_ID = /^[A-Za-z0-9]{4,40}$/;
-const GIF_URL = /^https:\/\/(?:media[0-9]?|i)\.giphy\.com\/media\/[A-Za-z0-9]{4,40}\/[A-Za-z0-9_.-]{1,40}$/;
+// Giphy ahora pone un trozo "v1.xxxx" antes del id: https://media3.giphy.com/media/v1.Y2lk.../ID/200w.webp
+const GIF_URL = /^https:\/\/(?:media[0-9]?|i)\.giphy\.com\/media\/(?:v1\.[A-Za-z0-9_=-]{1,400}\/)?([A-Za-z0-9]{4,40})\/[A-Za-z0-9_.-]{1,40}$/;
 
 // ---------- Responder a un mensaje ----------
 const MAX_CITA = 120;                      // caracteres del texto citado que se guardan
@@ -346,7 +347,9 @@ export class SalaSocial extends DurableObject {
     const fw = im.fixed_width || {}, fws = im.fixed_width_downsampled || fw;
     const url = limpia(fw.webp || fw.url), previa = limpia(fws.webp || fws.url || url);
     const ancho = Math.round(Number(fw.width) || 0), alto = Math.round(Number(fw.height) || 0);
-    if (!GIF_URL.test(url) || !GIF_URL.test(previa) || !ancho || !alto || ancho > 2000 || alto > 2000) return null;
+    // Las dos direcciones tienen que ser de Giphy y de este mismo GIF.
+    const a = GIF_URL.exec(url), b = GIF_URL.exec(previa);
+    if (!a || !b || a[1] !== g.id || b[1] !== g.id || !ancho || !alto || ancho > 2000 || alto > 2000) return null;
     const titulo = limpiarTexto(g.title, false).replace(/\s*GIF\b.*$/i, "").slice(0, 80);
     return { id: g.id, url, previa, ancho, alto, titulo };
   }
@@ -376,13 +379,25 @@ export class SalaSocial extends DurableObject {
         const p = new URLSearchParams({ api_key: this.env.GIPHY_CLAVE, limit: String(GIF_POR_PAGINA), rating: GIF_CLASIFICACION, bundle: "messaging_non_clips" });
         if (q) { p.set("q", q); p.set("lang", idioma); }
         let r;
-        try { r = await fetch("https://api.giphy.com/v1/gifs/" + (q ? "search" : "trending") + "?" + p.toString()); }
-        catch (e) { return json({ error: "gif_red" }, 502); }
-        if (r.status === 429) return json({ error: "gif_limite" }, 429);
-        if (!r.ok) return json({ error: "gif_red" }, 502);
+        try {
+          r = await fetch("https://api.giphy.com/v1/gifs/" + (q ? "search" : "trending") + "?" + p.toString(), {
+            headers: { "User-Agent": "shukito-social/1.0", Accept: "application/json" },
+          });
+        } catch (e) { console.log("Giphy: sin conexión", String(e)); return json({ error: "gif_red" }, 502); }
+        if (!r.ok) {
+          // Se anota para verlo con "npx wrangler tail" (la clave nunca se anota).
+          let detalle = "";
+          try { detalle = (await r.text()).slice(0, 300); } catch (e) { /* nada */ }
+          console.log("Giphy respondió", r.status, detalle);
+          if (r.status === 429) return json({ error: "gif_limite" }, 429);
+          if (r.status === 401 || r.status === 403) return json({ error: "gif_clave" }, 502);
+          return json({ error: "gif_red" }, 502);
+        }
         let d;
         try { d = await r.json(); } catch (e) { return json({ error: "gif_red" }, 502); }
-        lista = (Array.isArray(d && d.data) ? d.data : []).map((g) => this.gifDeGiphy(g)).filter(Boolean);
+        const recibidos = Array.isArray(d && d.data) ? d.data : [];
+        lista = recibidos.map((g) => this.gifDeGiphy(g)).filter(Boolean);
+        if (recibidos.length && !lista.length) console.log("Giphy: ningún GIF pasó el filtro", recibidos.length);
       }
       guardado = { ts: ahora, lista };
       this.gifGuardados.set(clave, guardado);

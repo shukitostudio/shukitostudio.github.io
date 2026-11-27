@@ -2457,7 +2457,7 @@
   // Solo imágenes de Giphy (y, al probar en la computadora, los dibujos de prueba del servidor local).
   function gifPermitido(u) {
     u = String(u || '');
-    return /^https:\/\/(?:media[0-9]?|i)\.giphy\.com\/media\/[A-Za-z0-9]+\/[A-Za-z0-9_.-]+$/.test(u)
+    return /^https:\/\/(?:media[0-9]?|i)\.giphy\.com\/media\/(?:v1\.[A-Za-z0-9_=-]+\/)?[A-Za-z0-9]+\/[A-Za-z0-9_.-]+$/.test(u)
       || (ES_LOCAL && /^data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+$/.test(u));
   }
   function crearGif(g) {
@@ -2541,7 +2541,7 @@
     }).catch(function (e) {
       if (n !== gifPedido) return;
       listaGifs.textContent = '';
-      estadoGifs(t(e === 'gif_limite' ? 'socialErrGifLimite' : e === 'sin_gifs' ? 'socialErrSinGifs'
+      estadoGifs(t(e === 'gif_limite' ? 'socialErrGifLimite' : e === 'sin_gifs' ? 'socialErrSinGifs' : e === 'gif_clave' ? 'socialErrGifClave'
         : e === 'sesion' ? 'socialErrSesion' : 'socialErrGifRed'));
     });
   }
