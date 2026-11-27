@@ -16,7 +16,14 @@ Esta guía no tiene ninguna clave. Las claves se escriben solo en la terminal, c
 
    - `ADMIN_CLAVE`: tu clave de administrador. Que sea larga (12 caracteres o más) y distinta de la del grupo.
    - La clave del grupo (`CLAVE`) ya existe. Después se puede cambiar desde el panel de administrador.
-3. **Workers AI** (botón Traducir) no hay que activarlo aparte: viene con la cuenta y tiene un uso gratis por día.
+3. **GIFs (Giphy)**: la clave de Giphy se guarda como secreto (nunca en la página ni en GitHub):
+
+   ```
+   npx wrangler secret put GIPHY_CLAVE
+   ```
+
+   Pega la clave (API Key) de tu app de Giphy cuando la pida. Sin este secreto el botón GIF muestra "Los GIFs todavía no están activados".
+4. **Workers AI** (botón Traducir) no hay que activarlo aparte: viene con la cuenta y tiene un uso gratis por día.
 
 ## 2. Publicar (servidor y página seguidos, en pocos minutos)
 
@@ -51,6 +58,8 @@ En un iPhone (Safari) y en un Android (Chrome):
 - [ ] **Foto** con la cámara y desde la galería.
 - [ ] **Video** de la galería de más de 15 segundos: se corta a 15 y se ve en el otro teléfono (iPhone ↔ Android).
 - [ ] **Audio**: el navegador pide el micrófono, se graba, se envía y se escucha en el otro teléfono.
+- [ ] **Responder** (carita → Responder) a un texto, una foto y un GIF, en el general y en un privado. Tocar la cita lleva al mensaje original.
+- [ ] **GIF**: abrir, ver los populares, buscar (por ejemplo "gato"), enviar. Se ve en el otro teléfono.
 - [ ] **Traducir** un mensaje en español y uno en inglés.
 - [ ] Sonido de mensaje con el chat cerrado. En computadora, también la notificación con la pestaña en segundo plano.
 - [ ] Silenciar a una persona: no suena, pero sale el asterisco.

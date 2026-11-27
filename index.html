@@ -393,6 +393,30 @@
         <div class="social-vista">
           <div id="social-mensajes" class="social-mensajes" aria-live="polite"></div>
           <div id="social-escribiendo" class="social-escribiendo" aria-live="polite"></div>
+          <!-- Buscador de GIFs (las búsquedas pasan por nuestro servidor) -->
+          <section id="social-gifs" class="social-gifs" role="dialog" aria-labelledby="social-gifs-titulo" hidden>
+            <div class="social-gifs-cabecera">
+              <h3 id="social-gifs-titulo" class="social-gifs-titulo" data-i="socialGifTitulo"></h3>
+              <input type="search" id="social-gifs-buscar" class="social-gifs-buscar" maxlength="50" enterkeyhint="search" autocomplete="off" data-i-ph="socialGifBuscar" data-i-label="socialGifBuscar">
+              <button type="button" id="social-gifs-cerrar" class="social-x-chica" data-i-label="socialGifCerrar">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+            <p id="social-gifs-estado" class="social-gifs-estado" role="status"></p>
+            <div id="social-gifs-lista" class="social-gifs-lista"></div>
+            <p class="social-gifs-pie" data-i="socialGifGiphy"></p>
+          </section>
+          <!-- Respondiendo a un mensaje -->
+          <div id="social-respuesta" class="social-respuesta" hidden>
+            <span id="social-respuesta-mini" class="social-respuesta-mini" aria-hidden="true" hidden></span>
+            <span class="social-respuesta-textos">
+              <span id="social-respuesta-titulo" class="social-respuesta-titulo"></span>
+              <span id="social-respuesta-texto" class="social-respuesta-texto"></span>
+            </span>
+            <button type="button" id="social-respuesta-cancelar" class="social-x-chica" data-i-label="socialCancelarRespuesta">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+            </button>
+          </div>
           <form id="social-form" class="social-form" autocomplete="off">
             <!-- Adjuntar: galería, cámara (foto o video) y audio -->
             <div class="social-adjuntar-caja">
@@ -422,6 +446,9 @@
                 </button>
               </div>
             </div>
+            <button type="button" id="social-gif" class="social-boton-redondo social-boton-gif" aria-haspopup="dialog" aria-expanded="false" aria-controls="social-gifs" data-i-label="socialGifAbrir">
+              <span aria-hidden="true">GIF</span>
+            </button>
             <!-- Galería separada en fotos y videos: en algunos Android, "image/*,video/*" solo muestra fotos -->
             <input type="file" id="social-archivo" accept="image/*" hidden>
             <input type="file" id="social-galeria-video" accept="video/*" hidden>
@@ -446,13 +473,17 @@
           </div>
           <span id="social-contador" class="social-contador" aria-hidden="true"></span>
 
-          <!-- Reacciones: aparece al mantener pulsado un mensaje -->
+          <!-- Reacciones y Responder: aparece al tocar la carita de un mensaje -->
           <div id="social-reaccionar" class="social-reaccionar" role="menu" data-i-label="socialReaccionar" hidden>
             <button type="button" role="menuitemradio" aria-checked="false" data-e="👍" data-i-label="socialReaccionMeGusta">👍</button>
             <button type="button" role="menuitemradio" aria-checked="false" data-e="❤️" data-i-label="socialReaccionMeEncanta">❤️</button>
             <button type="button" role="menuitemradio" aria-checked="false" data-e="😢" data-i-label="socialReaccionTriste">😢</button>
             <button type="button" role="menuitemradio" aria-checked="false" data-e="😡" data-i-label="socialReaccionEnojado">😡</button>
             <button type="button" role="menuitemradio" aria-checked="false" data-e="😂" data-i-label="socialReaccionRisa">😂</button>
+            <button type="button" role="menuitem" class="social-op-responder" data-accion="responder">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5L3.5 11 10 17v-3.8c4.6 0 7.8 1.4 10.5 5.3-.9-5.4-4-9.6-10.5-10.5z" fill="currentColor"/></svg>
+              <span data-i="socialResponder"></span>
+            </button>
           </div>
 
           <!-- Lista de chats: el general y los privados -->
@@ -513,6 +544,7 @@
         <li data-i="priv7"></li>
         <li data-i="priv8"></li>
         <li data-i="priv9"></li>
+        <li data-i="priv10"></li>
         <li data-i="priv5"></li>
       </ul>
       <button type="button" class="btn-madera btn-chico" id="priv-cerrar"><span data-i="privCerrar"></span></button>

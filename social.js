@@ -102,6 +102,7 @@
   var traducciones = {};      // id del mensaje -> {a: 'es' | 'en', texto}
   var verTraduccion = {};     // id -> true si se está mostrando la traducción
   var traduciendo = {};       // id -> true mientras se espera la traducción
+  var respuesta = null;       // mensaje al que se está respondiendo: {sala, id, n, x, tp, dur, archivo, gif}
   var errorPendiente = '';    // aviso de sesión terminada mientras el chat estaba cerrado
   var datosAdmin = null;      // {chats: [{sala, miembros, cuantos, ultimo}], clavePropia}
   var silencios = { sala: {}, persona: {} }; // lo que silencié (se guarda en el servidor)
@@ -280,6 +281,8 @@
     cerrarVisor();
     cerrarSelectorReaccion();
     cerrarMenuAdjuntar(false);
+    cerrarGifs(false);
+    cancelarRespuesta();
     raiz.hidden = true;
     document.documentElement.classList.remove('social-abierto');
     iphoneDespues();
@@ -374,10 +377,12 @@
     else if (!$('social-grabando').hidden) cancelarGrabacion();
     else if (!menu.hidden) cerrarMenu(true);
     else if (!selector.hidden) cerrarSelectorReaccion(true);
+    else if (!ventanaGifs.hidden) cerrarGifs(true);
     else if (!menuAdjuntar.hidden) cerrarMenuAdjuntar(true);
     else if (!menuChat.hidden) cerrarMenuChat(true);
     else if (!$('social-estado-form').hidden) cancelarEstado();
     else if (panel) cerrarPanel(true);
+    else if (respuesta && abierto && !chat.hidden) cancelarRespuesta(true);
     else if (abierto) cerrar(false);
   });
 
@@ -697,6 +702,8 @@
     pintarCabeceraSala();
     if (cambio) {
       caja.value = '';
+      cancelarRespuesta();
+      cerrarGifs(false);
       ajustarCaja();
       pintarTodo();
     }
@@ -1306,6 +1313,7 @@
   }
   // Texto corto de un mensaje para la lista de chats y las notificaciones.
   function resumen(m) {
+    if (m.gif) return '🎞️ ' + t('socialGifNombre') + (m.texto ? ' ' + m.texto : '');
     if (!m.archivo) return m.texto;
     return etiquetaMedio(m) + (m.texto ? ' ' + m.texto : '');
   }
@@ -1448,11 +1456,15 @@
   // El servidor acepta un mensaje por segundo: si hace falta, se espera un poco antes de enviar.
   function enviarConArchivo(clave, texto, sala) {
     var espera = Math.max(0, 1000 - (Date.now() - ultimoEnvio));
+    var resp = respuestaPara(sala);
+    if (resp) cancelarRespuesta();
     setTimeout(function () {
       if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
       ultimoEnvio = Date.now();
       var cid = ultimoEnvio.toString(36) + Math.random().toString(36).slice(2, 7);
-      ws.send(JSON.stringify({ t: 'msg', sala: sala, texto: texto || '', archivo: clave, cid: cid }));
+      var datos = { t: 'msg', sala: sala, texto: texto || '', archivo: clave, cid: cid };
+      if (resp) datos.resp = resp.id;
+      ws.send(JSON.stringify(datos));
     }, espera);
   }
 
@@ -1814,6 +1826,7 @@
     botonEnviar.disabled = true;
     $('social-adjuntar').disabled = true;
     $('social-microfono').disabled = true;
+    $('social-gif').disabled = true;
     reintento = Math.min(reintento + 1, 6);
     temporizador = setTimeout(conectar, Math.min(1000 * Math.pow(1.7, reintento), 15000));
   }
@@ -1886,6 +1899,7 @@
     } else if (m.t === 'borrado') {
       var cb = chats[m.sala];
       if (cb) cb.mensajes = cb.mensajes.filter(function (x) { return x.id !== m.id; });
+      if (respuesta && respuesta.id === m.id) cancelarRespuesta();
       if (m.sala === salaActual) {
         var filaB = lista.querySelector('.social-fila[data-id="' + Number(m.id) + '"]');
         if (filaB) filaB.remove();
@@ -1992,12 +2006,17 @@
       actualizarAsterisco();
     } else if (m.t === 'error') {
       var p = m.cid && pendientes[m.cid];
-      if (p) { delete pendientes[m.cid]; p.fila.remove(); }
+      if (p) {
+        delete pendientes[m.cid]; p.fila.remove();
+        // El texto no se pierde: vuelve a la caja (si no se escribió otra cosa mientras tanto).
+        if (p.texto && !caja.value.trim() && p.sala === salaActual) { caja.value = p.texto; ajustarCaja(); }
+      }
       mostrarAviso(m.e === 'rapido' ? t('socialErrRapido') : m.e === 'largo' ? t('socialErrLargo')
         : m.e === 'estado_largo' ? t('socialErrEstado') : m.e === 'avatar' ? t('socialErrFoto')
         : m.e === 'sala' ? t('socialErrSala') : m.e === 'archivo' ? t('socialErrArchivo')
         : m.e === 'traducir' ? t('socialErrTraducir') : m.e === 'traducir_limite' ? t('socialErrTraducirLimite')
-        : m.e === 'sin_traductor' ? t('socialErrSinTraductor') : '');
+        : m.e === 'sin_traductor' ? t('socialErrSinTraductor') : m.e === 'responder' ? t('socialErrResponder')
+        : m.e === 'gif' ? t('socialErrGif') : '');
       if (m.id && traduciendo[m.id]) {
         delete traduciendo[m.id];
         var filaE = lista.querySelector('.social-fila[data-id="' + Number(m.id) + '"]');
@@ -2067,6 +2086,8 @@
       autor.textContent = nombre;
       b.appendChild(autor);
     }
+    if (medio && medio.cita) b.appendChild(crearCita(medio.cita));
+    if (medio && medio.gif) { b.appendChild(crearGif(medio.gif)); fila.classList.add('con-gif'); }
     if (medio && medio.archivo) b.appendChild(crearMedio(medio));
     if (texto) {
       var cuerpo = document.createElement('span');
@@ -2230,13 +2251,14 @@
     if (!fila.isConnected) return;
     cerrarSelectorReaccion();
     cerrarMenuAdjuntar(false);
+    cerrarGifs(false);
     selectorId = id;
     selectorFila = fila;
     botonCaritaActivo = bt;
     bt.setAttribute('aria-expanded', 'true');
     fila.classList.add('reaccionando');
     var mia = miReaccion(id);
-    Array.prototype.forEach.call(selector.querySelectorAll('button'), function (bt) {
+    Array.prototype.forEach.call(selector.querySelectorAll('[data-e]'), function (bt) {
       bt.setAttribute('aria-checked', bt.getAttribute('data-e') === mia ? 'true' : 'false');
     });
     selector.hidden = false;
@@ -2268,6 +2290,7 @@
     if (!bt) return;
     var id = selectorId;
     cerrarSelectorReaccion();
+    if (bt.getAttribute('data-accion') === 'responder') { empezarRespuesta(id); return; }
     reaccionar(id, bt.getAttribute('data-e'));
   });
   selector.addEventListener('keydown', function (e) {
@@ -2312,6 +2335,257 @@
     actualizarAsterisco();
   }
 
+  // Burbuja gris con 🕓 mientras el servidor confirma el mensaje.
+  function ponerPendiente(cid, texto, medio) {
+    var fila = crearBurbuja(sesion.nombre, texto, Date.now(), true, false, medio);
+    fila.classList.add('pendiente');
+    var marca = fila.querySelector('.social-marca');
+    marca.textContent = '🕓';
+    marca.setAttribute('aria-label', t('socialPendiente'));
+    var vacio = lista.querySelector('.social-vacio');
+    if (vacio) vacio.remove();
+    lista.appendChild(fila);
+    pendientes[cid] = { fila: fila, sala: salaActual };
+    return fila;
+  }
+
+  /* ---------- Responder a un mensaje ---------- */
+  var cajaRespuesta = $('social-respuesta');
+  function buscarMensaje(sala, id) {
+    var l = datosSala(sala).mensajes;
+    for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i];
+    return null;
+  }
+  function nombreCita(n) {
+    if (minus(n) === yoMinus()) return t('socialCitaTu');
+    var p = perfilDe(minus(n));
+    return p ? p.n : n;
+  }
+  // "📷 Foto · texto", "🎞️ GIF" o solo el texto.
+  function etiquetaCita(c) {
+    var medio = c.tp === 'gif' ? '🎞️ ' + t('socialGifNombre') : c.tp ? etiquetaMedio({ tipo: c.tp, dur: c.dur || 0 }) : '';
+    return medio && c.x ? medio + ' · ' + c.x : (medio || c.x || '');
+  }
+  function empezarRespuesta(id) {
+    var m = buscarMensaje(salaActual, id);
+    if (!m) return;
+    cerrarGifs(false);
+    respuesta = {
+      sala: salaActual, id: m.id, n: m.nombre, x: Array.from(m.texto || '').slice(0, 120).join(''),
+      tp: m.gif ? 'gif' : (m.tipo || ''), dur: m.dur || 0, archivo: m.archivo || '', gif: m.gif || null
+    };
+    pintarRespuesta();
+    caja.focus();
+  }
+  // Lo que se muestra en la burbuja pendiente (y lo que se manda: solo el id).
+  function respuestaPara(sala) {
+    if (!respuesta || respuesta.sala !== sala) return null;
+    var r = { id: respuesta.id, n: respuesta.n, x: respuesta.x };
+    if (respuesta.tp) r.tp = respuesta.tp;
+    if (respuesta.dur) r.dur = respuesta.dur;
+    return r;
+  }
+  function cancelarRespuesta(devolverFoco) {
+    if (!respuesta) return;
+    respuesta = null;
+    pintarRespuesta();
+    if (devolverFoco) caja.focus();
+  }
+  function pintarRespuesta() {
+    cajaRespuesta.hidden = !respuesta;
+    var mini = $('social-respuesta-mini');
+    mini.textContent = '';
+    mini.hidden = true;
+    if (!respuesta) return;
+    var r = respuesta;
+    $('social-respuesta-titulo').textContent = minus(r.n) === yoMinus() ? t('socialRespondiendoATi') : t('socialRespondiendoA', { n: nombreCita(r.n) });
+    $('social-respuesta-texto').textContent = etiquetaCita(r);
+    var ponerMini = function (url) {
+      if (respuesta !== r) return;
+      var img = document.createElement('img');
+      img.alt = '';
+      img.referrerPolicy = 'no-referrer';
+      img.src = url;
+      mini.textContent = '';
+      mini.appendChild(img);
+      mini.hidden = false;
+    };
+    if (r.gif && gifPermitido(r.gif.u)) ponerMini(r.gif.u);
+    else if (r.tp === 'foto' && r.archivo) cargarArchivo(r.archivo).then(ponerMini, function () { /* sin miniatura */ });
+  }
+  $('social-respuesta-cancelar').addEventListener('click', function () { cancelarRespuesta(true); });
+
+  // La cita arriba de la burbuja: al tocarla, el chat va al mensaje original y lo resalta.
+  function crearCita(c) {
+    var bt = document.createElement('button');
+    bt.type = 'button';
+    bt.className = 'social-cita';
+    var n = document.createElement('span');
+    n.className = 'social-cita-nombre';
+    n.textContent = nombreCita(c.n);
+    var x = document.createElement('span');
+    x.className = 'social-cita-texto';
+    x.textContent = etiquetaCita(c);
+    bt.appendChild(n);
+    bt.appendChild(x);
+    bt.setAttribute('aria-label', t('socialCitaDe', { n: nombreCita(c.n), x: etiquetaCita(c) }));
+    bt.addEventListener('click', function () { irAMensaje(c.id); });
+    return bt;
+  }
+  function irAMensaje(id) {
+    var fila = lista.querySelector('.social-fila[data-id="' + Number(id) + '"]');
+    if (!fila) { mostrarAviso(t('socialCitaNoEsta')); return; }
+    var quieto = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var dif = fila.getBoundingClientRect().top - lista.getBoundingClientRect().top;
+    var arriba = lista.scrollTop + dif - Math.max(0, (lista.clientHeight - fila.offsetHeight) / 2);
+    lista.scrollTo({ top: Math.max(0, arriba), behavior: quieto ? 'auto' : 'smooth' });
+    fila.classList.remove('resaltada');
+    void fila.offsetWidth; // para que la animación vuelva a empezar
+    fila.classList.add('resaltada');
+    clearTimeout(fila._resalte);
+    fila._resalte = setTimeout(function () { fila.classList.remove('resaltada'); }, 1800);
+  }
+
+  /* ---------- GIFs (Giphy, a través de nuestro servidor) ---------- */
+  var ventanaGifs = $('social-gifs');
+  var botonGif = $('social-gif');
+  var buscadorGif = $('social-gifs-buscar');
+  var listaGifs = $('social-gifs-lista');
+  var gifsGuardados = {};     // búsqueda -> {ts, lista}
+  var gifPedido = 0, gifEspera = null;
+  var ES_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+  // Solo imágenes de Giphy (y, al probar en la computadora, los dibujos de prueba del servidor local).
+  function gifPermitido(u) {
+    u = String(u || '');
+    return /^https:\/\/(?:media[0-9]?|i)\.giphy\.com\/media\/[A-Za-z0-9]+\/[A-Za-z0-9_.-]+$/.test(u)
+      || (ES_LOCAL && /^data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+$/.test(u));
+  }
+  function crearGif(g) {
+    var c = document.createElement('div');
+    c.className = 'social-medio gif';
+    if (g.w && g.h) c.style.aspectRatio = g.w + ' / ' + g.h;
+    if (!gifPermitido(g.u)) {
+      var espera = document.createElement('span');
+      espera.className = 'social-medio-espera';
+      espera.textContent = '🎞️ ' + t('socialGifNombre');
+      c.appendChild(espera);
+      return c;
+    }
+    var img = document.createElement('img');
+    img.alt = t('socialGifNombre');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    img.src = g.u;
+    c.appendChild(img);
+    return c;
+  }
+  function estadoGifs(texto) { $('social-gifs-estado').textContent = texto || ''; }
+  function abrirGifs() {
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    cerrarMenuAdjuntar(false);
+    cerrarSelectorReaccion();
+    cerrarMenuChat(false);
+    ventanaGifs.hidden = false;
+    botonGif.setAttribute('aria-expanded', 'true');
+    buscadorGif.value = '';
+    cargarGifs('');
+    // En el teléfono no se abre el teclado enseguida: taparía los GIFs.
+    if (esTactil) $('social-gifs-cerrar').focus(); else buscadorGif.focus();
+    bajar(true);
+  }
+  function cerrarGifs(devolverFoco) {
+    if (ventanaGifs.hidden) return;
+    ventanaGifs.hidden = true;
+    botonGif.setAttribute('aria-expanded', 'false');
+    clearTimeout(gifEspera);
+    gifPedido++;
+    listaGifs.textContent = '';
+    estadoGifs('');
+    if (devolverFoco) botonGif.focus();
+  }
+  botonGif.addEventListener('click', function () { if (ventanaGifs.hidden) abrirGifs(); else cerrarGifs(true); });
+  $('social-gifs-cerrar').addEventListener('click', function () { cerrarGifs(true); });
+  buscadorGif.addEventListener('input', function () {
+    clearTimeout(gifEspera);
+    gifEspera = setTimeout(function () { cargarGifs(buscadorGif.value); }, 500);
+  });
+  buscadorGif.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    clearTimeout(gifEspera);
+    cargarGifs(buscadorGif.value);
+    if (esTactil) buscadorGif.blur(); // esconde el teclado para ver los resultados
+  });
+  function cargarGifs(q) {
+    q = String(q || '').trim().toLowerCase().slice(0, 50);
+    var clave = q ? idioma() + ':' + q : 'top';
+    var guardado = gifsGuardados[clave];
+    if (guardado && Date.now() - guardado.ts < 10 * 60 * 1000) { pintarGifs(guardado.lista, q); return; }
+    var n = ++gifPedido;
+    estadoGifs(t('socialGifCargando'));
+    var datos = 'q=' + encodeURIComponent(q) + '&idioma=' + (idioma() === 'en' ? 'en' : 'es');
+    fetch(SOCIAL_SERVIDOR + '/gifs?' + datos, {
+      headers: { Authorization: 'Bearer ' + (sesion ? sesion.token : '') },
+      cache: 'no-store'
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok) throw (d && d.error) || 'gif_red';
+        return d;
+      });
+    }).then(function (d) {
+      if (n !== gifPedido) return;
+      var l = (d.gifs || []).filter(function (g) { return g && g.id && gifPermitido(g.url) && gifPermitido(g.previa); });
+      gifsGuardados[clave] = { ts: Date.now(), lista: l };
+      pintarGifs(l, q);
+    }).catch(function (e) {
+      if (n !== gifPedido) return;
+      listaGifs.textContent = '';
+      estadoGifs(t(e === 'gif_limite' ? 'socialErrGifLimite' : e === 'sin_gifs' ? 'socialErrSinGifs'
+        : e === 'sesion' ? 'socialErrSesion' : 'socialErrGifRed'));
+    });
+  }
+  function pintarGifs(l, q) {
+    listaGifs.textContent = '';
+    listaGifs.scrollTop = 0;
+    estadoGifs(l.length ? (q ? '' : t('socialGifPopulares')) : q ? t('socialGifNada', { q: q }) : t('socialErrGifRed'));
+    l.forEach(function (g) {
+      var bt = document.createElement('button');
+      bt.type = 'button';
+      bt.className = 'social-gif-item';
+      bt.setAttribute('aria-label', t('socialGifEnviar') + (g.titulo ? ': ' + g.titulo : ''));
+      var img = document.createElement('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      img.src = g.previa;
+      bt.appendChild(img);
+      bt.addEventListener('click', function () { enviarGif(g); });
+      listaGifs.appendChild(bt);
+    });
+  }
+  // El servidor acepta un mensaje por segundo: si hace falta, se espera un poco antes de enviar.
+  function enviarGif(g) {
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    var sala = salaActual;
+    var resp = respuestaPara(sala);
+    cerrarGifs(false);
+    cancelarRespuesta();
+    var espera = Math.max(0, 1000 - (Date.now() - ultimoEnvio));
+    ultimoEnvio = Date.now() + espera;
+    var cid = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    var fila = ponerPendiente(cid, '', { gif: { u: g.url, w: g.ancho, h: g.alto }, cita: resp });
+    bajar(false);
+    botonGif.focus({ preventScroll: true });
+    setTimeout(function () {
+      if (!ws || ws.readyState !== 1) { delete pendientes[cid]; fila.remove(); mostrarAviso(t('socialErrRed')); return; }
+      var datos = { t: 'msg', sala: sala, texto: '', gif: g.id, cid: cid };
+      if (resp) datos.resp = resp.id;
+      ws.send(JSON.stringify(datos));
+    }, espera);
+  }
+
   /* ---------- Escribir y enviar ---------- */
   function largo(s) { return Array.from(s).length; }
   function ajustarCaja() {
@@ -2327,6 +2601,7 @@
     botonEnviar.disabled = !caja.value.trim() || n > MAX_LARGO || !conectado;
     $('social-adjuntar').disabled = !conectado;
     $('social-microfono').disabled = !conectado;
+    $('social-gif').disabled = !conectado;
   }
   caja.addEventListener('input', function () {
     ajustarCaja();
@@ -2353,16 +2628,13 @@
     if (ahora - ultimoEnvio < 1000) { mostrarAviso(t('socialErrRapido')); return; }
     ultimoEnvio = ahora;
     var cid = ahora.toString(36) + Math.random().toString(36).slice(2, 7);
-    var fila = crearBurbuja(sesion.nombre, texto, ahora, true, false);
-    fila.classList.add('pendiente');
-    var marca = fila.querySelector('.social-marca');
-    marca.textContent = '🕓';
-    marca.setAttribute('aria-label', t('socialPendiente'));
-    var vacio = lista.querySelector('.social-vacio');
-    if (vacio) vacio.remove();
-    lista.appendChild(fila);
-    pendientes[cid] = { fila: fila, sala: salaActual };
-    ws.send(JSON.stringify({ t: 'msg', sala: salaActual, texto: texto, cid: cid }));
+    var resp = respuestaPara(salaActual);
+    ponerPendiente(cid, texto, resp ? { cita: resp } : null);
+    pendientes[cid].texto = texto;
+    var datos = { t: 'msg', sala: salaActual, texto: texto, cid: cid };
+    if (resp) datos.resp = resp.id;
+    ws.send(JSON.stringify(datos));
+    cancelarRespuesta();
     caja.value = '';
     ajustarCaja();
     caja.focus();
@@ -2378,6 +2650,8 @@
     pintarAdmin();
     pintarAjustesAvisos();
     actualizarAsterisco();
+    pintarRespuesta();
+    if (!ventanaGifs.hidden) cargarGifs(buscadorGif.value);
     if (!abierto) return;
     if (sesion && !chat.hidden) { pintarPerfil(); pintarCabeceraSala(); }
     if (sesion && !chat.hidden && ws && ws.readyState === 1) {

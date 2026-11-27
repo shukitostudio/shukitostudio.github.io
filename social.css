@@ -808,3 +808,110 @@ html[data-tema="noche"] .social-barra-progreso {
   text-shadow: 0 1px 1px rgba(0, 30, 80, .5);
 }
 .social-falso p { margin: 0; font-size: 18px; color: var(--ae-tenue); }
+
+/* =====================================================================
+   Responder: tarjeta sobre el campo, cita arriba de la burbuja y resalte
+   ===================================================================== */
+.social-respuesta {
+  flex: none; display: flex; align-items: center; gap: 10px; margin: 0 8px 6px; padding: 6px 6px 6px 10px;
+  border-radius: 12px; border: 1px solid var(--ae-cristal-borde, var(--so-borde));
+  border-left: 4px solid #3a9bf0;
+  background: var(--ae-cristal, none), var(--so-barra);
+  box-shadow: 0 2px 8px rgba(0, 20, 50, .25), inset 0 1px 0 var(--ae-brillo, transparent);
+  animation: social-aparecer .14s ease-out;
+}
+.social-respuesta[hidden] { display: none; }
+.social-respuesta-mini { flex: none; width: 40px; height: 40px; border-radius: 8px; overflow: hidden; background: rgba(127, 140, 160, .2); }
+.social-respuesta-mini[hidden] { display: none; }
+.social-respuesta-mini img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.social-respuesta-textos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.social-respuesta-titulo { font-size: 13px; font-weight: bold; color: var(--so-autor); }
+.social-respuesta-texto, .social-cita-texto {
+  font-size: 14px; color: var(--so-tenue); overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere;
+}
+.social-x-chica {
+  flex: none; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; cursor: pointer;
+  border: 0; border-radius: 50%; background: none; color: var(--so-tenue);
+}
+.social-x-chica svg { width: 18px; height: 18px; }
+.social-x-chica:hover, .social-x-chica:focus-visible { color: var(--so-texto); background: rgba(127, 140, 160, .2); }
+
+/* La cita dentro de la burbuja */
+.social-cita {
+  display: flex; flex-direction: column; gap: 1px; min-width: 120px; max-width: 100%; margin: 2px 0 5px;
+  padding: 5px 9px; border: 0; border-left: 3px solid #3a9bf0; border-radius: 8px; cursor: pointer;
+  text-align: left; font: inherit; color: inherit; background: rgba(0, 20, 50, .16);
+}
+.mia .social-cita { border-left-color: rgba(255, 255, 255, .85); background: rgba(0, 25, 70, .2); }
+html[data-tema="dia"] .mia .social-cita { border-left-color: #1d74d0; background: rgba(30, 90, 160, .1); }
+html[data-tema="dia"] .otra .social-cita { background: rgba(30, 60, 110, .07); }
+.social-cita:hover, .social-cita:focus-visible { filter: brightness(1.12); }
+.social-cita-nombre { font-size: 13px; font-weight: bold; color: var(--so-autor); }
+.mia .social-cita-nombre { color: inherit; }
+.social-cita-texto { color: inherit; opacity: .8; font-size: 13.5px; }
+.social.en-conversacion .mia .social-cita-texto { text-shadow: none; }
+
+/* El mensaje original, resaltado un momento */
+.social-fila.resaltada .social-burbuja { animation: social-resalte 1.8s ease-out; }
+@keyframes social-resalte {
+  0%, 35% { box-shadow: 0 0 0 3px rgba(90, 180, 255, .95), 0 0 18px 4px rgba(90, 180, 255, .6); }
+  100% { box-shadow: 0 0 0 0 rgba(90, 180, 255, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .social-respuesta { animation: none; }
+  .social-fila.resaltada .social-burbuja { animation: none; box-shadow: 0 0 0 3px rgba(90, 180, 255, .95); }
+}
+
+/* Barra de reacciones con "Responder" debajo */
+.social-reaccionar { flex-wrap: wrap; justify-content: center; max-width: 252px; border-radius: 26px; }
+.social-reaccionar button.social-op-responder {
+  width: 100%; height: 38px; margin-top: 3px; display: flex; gap: 8px; justify-content: center; align-items: center;
+  font: inherit; font-size: 15px; font-weight: bold; color: var(--so-texto);
+  border-top: 1px solid var(--ae-cristal-borde, var(--so-borde)); border-radius: 0 0 22px 22px;
+}
+.social-reaccionar button.social-op-responder svg { width: 18px; height: 18px; color: #3a9bf0; }
+.social-reaccionar button.social-op-responder:hover,
+.social-reaccionar button.social-op-responder:focus-visible { transform: none; background: rgba(120, 180, 255, .2); }
+
+/* =====================================================================
+   GIFs: botón, buscador y GIF en la burbuja
+   ===================================================================== */
+.social-boton-gif { width: 40px; }
+.social-boton-gif span {
+  display: grid; place-items: center; height: 22px; padding: 0 4px; border: 2px solid currentColor; border-radius: 6px;
+  font: bold 11px/1 system-ui, sans-serif; letter-spacing: .5px;
+}
+.social-boton-gif[aria-expanded="true"] { color: #3a9bf0; background: rgba(120, 180, 255, .18); }
+.social-gifs {
+  flex: none; display: flex; flex-direction: column; height: min(380px, 58%); min-height: 200px; margin: 0 8px 6px;
+  border-radius: 16px; overflow: hidden; border: 1px solid var(--ae-cristal-borde, var(--so-borde));
+  background: var(--ae-cristal, none), var(--so-menu);
+  box-shadow: 0 8px 24px rgba(0, 20, 50, .4), inset 0 1px 0 var(--ae-brillo, transparent);
+  animation: social-aparecer .16s ease-out;
+}
+.social-gifs[hidden] { display: none; }
+.social-gifs-cabecera { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 6px 6px 12px; }
+.social-gifs-titulo { margin: 0; font-size: 16px; color: var(--so-texto); }
+.social .social-gifs-buscar {
+  flex: 1; min-width: 0; padding: 7px 12px; font-size: 16px; border-radius: 99px;
+  background: var(--ae-campo, var(--so-campo)); color: var(--so-campo-texto); border: 1px solid var(--ae-campo-borde, var(--so-borde));
+}
+.social .social-gifs-buscar:focus { outline: none; border-color: #4aa6f2; box-shadow: 0 0 0 3px rgba(74, 166, 242, .3); }
+.social-gifs-estado { flex: none; margin: 0; padding: 0 12px 4px; min-height: 18px; font-size: 13px; color: var(--so-tenue); }
+.social-gifs-estado:empty { display: none; }
+.social-gifs-lista {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 8px 6px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 112px; gap: 6px; align-content: start;
+}
+@media (min-width: 560px) { .social-gifs-lista { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.social-gif-item {
+  display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 8px; overflow: hidden; cursor: pointer;
+  background: rgba(127, 140, 160, .22);
+}
+.social-gif-item img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.social-gif-item:hover, .social-gif-item:focus-visible { outline: 3px solid #3a9bf0; outline-offset: -3px; }
+.social-gifs-pie { flex: none; margin: 0; padding: 4px 12px 6px; text-align: right; font-size: 11px; font-weight: bold; letter-spacing: .4px; color: var(--so-tenue); }
+.social-medio.gif { width: 220px; max-height: 300px; }
+.social-medio.gif img { display: block; width: 100%; height: 100%; object-fit: cover; background: none; }
+@media (prefers-reduced-motion: reduce) { .social-gifs { animation: none; } }

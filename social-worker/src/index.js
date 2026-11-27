@@ -40,6 +40,24 @@ const MAX_SUBIDA = 8 * 1024 * 1024;        // el más grande de todos (video)
 // ---------- Reacciones a los mensajes ----------
 const REACCIONES = ["👍", "❤️", "😢", "😡", "😂"];
 
+// ---------- GIFs (Giphy; la clave vive en el secreto GIPHY_CLAVE y la página nunca la ve) ----------
+// La clave gratis ("beta") de Giphy permite unas 100 llamadas por hora: por eso cada búsqueda se guarda un rato
+// y se comparte entre todos, y el servidor nunca hace más de GIF_LLAMADAS_HORA llamadas por hora.
+const GIF_CLASIFICACION = "pg";            // Giphy devuelve G y PG (nada de PG-13 ni R)
+const GIF_CLASES_OK = ["g", "pg"];
+const GIF_POR_PAGINA = 24;
+const GIF_MAX_BUSQUEDA = 50;               // caracteres de lo que se busca
+const GIF_GUARDAR = 30 * 60 * 1000;        // una búsqueda se reutiliza durante 30 minutos
+const GIF_LLAMADAS_HORA = 90;              // tope del servidor (deja margen bajo el límite de Giphy)
+const GIF_BUSQUEDAS_MAX = 25;              // búsquedas por persona...
+const GIF_BUSQUEDAS_VENTANA = 10 * 60 * 1000; // ...cada 10 minutos
+const GIF_VALIDO_HORAS = 24;               // un GIF mostrado en el buscador se puede enviar durante 24 horas
+const GIF_ID = /^[A-Za-z0-9]{4,40}$/;
+const GIF_URL = /^https:\/\/(?:media[0-9]?|i)\.giphy\.com\/media\/[A-Za-z0-9]{4,40}\/[A-Za-z0-9_.-]{1,40}$/;
+
+// ---------- Responder a un mensaje ----------
+const MAX_CITA = 120;                      // caracteres del texto citado que se guardan
+
 // ---------- Traducir (Workers AI, binding AI) ----------
 const MODELO_TRADUCIR = "@cf/meta/m2m100-1.2b";
 const TRADUCCIONES_MAX = 40;               // traducciones nuevas por persona...
@@ -96,7 +114,8 @@ export default {
     // Subir un archivo (cuerpo = el archivo) o bajarlo. Siempre con el token de la sesión en Authorization.
     const esSubir = url.pathname === "/subir" && request.method === "POST";
     const bajar = /^\/archivo\/([a-f0-9]{40})$/.exec(url.pathname);
-    if (esSubir || (bajar && request.method === "GET")) {
+    const gifs = url.pathname === "/gifs" && request.method === "GET";
+    if (esSubir || gifs || (bajar && request.method === "GET")) {
       const conCors = (r) => {
         const h = new Headers(r.headers);
         for (const [k, v] of Object.entries(cors(origen))) h.set(k, v);
@@ -112,7 +131,7 @@ export default {
         if (cuerpo.byteLength > MAX_SUBIDA) return conCors(json({ error: "grande" }, 413));
         cabeceras.set("Content-Length", String(cuerpo.byteLength));
       }
-      const r = await sala.fetch(new Request("https://sala" + url.pathname, {
+      const r = await sala.fetch(new Request("https://sala" + url.pathname + (gifs ? url.search : ""), {
         method: request.method, headers: cabeceras, body: cuerpo,
       }));
       return conCors(r);
@@ -168,7 +187,15 @@ function esMiembro(sala, nombre) {
 function paraEnviar(x) {
   const m = { id: x.id, sala: x.sala, nombre: x.nombre, texto: x.texto, ts: x.ts };
   if (x.archivo) { m.archivo = x.archivo; m.tipo = x.tipo; m.dur = x.dur; m.ancho = x.ancho; m.alto = x.alto; }
+  const gif = leerJson(x.gif), cita = leerJson(x.cita);
+  if (gif) m.gif = gif;
+  if (cita) m.cita = cita;
   return m;
+}
+function leerJson(s) {
+  if (!s) return null;
+  if (typeof s === "object") return s;
+  try { return JSON.parse(s); } catch (e) { return null; }
 }
 
 // Quita caracteres de control y espacios sobrantes. "lineas" deja saltos de línea.
@@ -203,6 +230,16 @@ export class SalaSocial extends DurableObject {
       this.sql.exec("ALTER TABLE mensajes ADD COLUMN ancho INTEGER NOT NULL DEFAULT 0");
       this.sql.exec("ALTER TABLE mensajes ADD COLUMN alto INTEGER NOT NULL DEFAULT 0");
     }
+    // GIF (dirección en Giphy y tamaño) y cita del mensaje al que responde (copia corta, por si el original se borra).
+    const columnas2 = String(this.sql.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mensajes'").one().sql);
+    if (!columnas2.includes("gif")) this.sql.exec("ALTER TABLE mensajes ADD COLUMN gif TEXT");
+    if (!columnas2.includes("cita")) this.sql.exec("ALTER TABLE mensajes ADD COLUMN cita TEXT");
+    // GIFs que el servidor mostró en el buscador (ya filtrados G/PG): solo estos se pueden enviar.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS gifs (
+      id TEXT PRIMARY KEY, url TEXT NOT NULL, previa TEXT NOT NULL, ancho INTEGER NOT NULL, alto INTEGER NOT NULL, ts INTEGER NOT NULL)`);
+    this.gifGuardados = new Map();   // búsqueda -> {ts, lista}
+    this.gifLlamadas = [];           // horas de las llamadas a Giphy (última hora)
+    this.gifBusquedas = new Map();   // nombre -> horas de sus búsquedas
     // Archivos subidos. "mensaje" queda vacío hasta que se envía el mensaje que lo lleva.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS archivos (
       clave TEXT PRIMARY KEY, nombre TEXT NOT NULL COLLATE NOCASE, tipo TEXT NOT NULL, mime TEXT NOT NULL,
@@ -282,6 +319,81 @@ export class SalaSocial extends DurableObject {
     this.sql.exec("DELETE FROM traducciones WHERE id NOT IN (SELECT id FROM mensajes)");
     this.sql.exec("DELETE FROM reacciones WHERE id NOT IN (SELECT id FROM mensajes)");
     this.sql.exec("DELETE FROM reacciones WHERE nombre NOT IN (SELECT nombre FROM usuarios)");
+    this.sql.exec("DELETE FROM gifs WHERE ts < ?", ahora - GIF_VALIDO_HORAS * 3600 * 1000);
+  }
+
+  // ---------- GIFs ----------
+  // GIF_PRUEBA="1" (solo al probar en la computadora) no llama a Giphy: devuelve dibujos de prueba.
+  gifsDePrueba(q) {
+    const colores = ["#3a8ee6", "#e6a23a", "#5fbf6a", "#d9534f", "#9b6bd6", "#2bb5b5"];
+    const nombre = (q || "top").replace(/[^A-Za-z0-9 ]/g, "").slice(0, 12);
+    const lista = [];
+    for (let i = 0; i < 12; i++) {
+      const alto = [150, 200, 120, 180][i % 4];
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="${alto}"><rect width="200" height="${alto}" fill="${colores[i % 6]}"/>`
+        + `<text x="100" y="${alto / 2}" font-family="sans-serif" font-size="22" fill="#fff" text-anchor="middle">${nombre} ${i + 1}</text></svg>`;
+      const url = "data:image/svg+xml;base64," + btoa(svg);
+      lista.push({ id: "prueba" + nombre.replace(/ /g, "").slice(0, 10) + i, url, previa: url, ancho: 200, alto, titulo: nombre + " " + (i + 1) });
+    }
+    return lista;
+  }
+
+  // Lo que se guarda de cada GIF de Giphy: una versión de 200 px de ancho (webp si hay) y su tamaño.
+  gifDeGiphy(g) {
+    if (!g || !GIF_ID.test(String(g.id || "")) || !GIF_CLASES_OK.includes(String(g.rating || "").toLowerCase())) return null;
+    const im = g.images || {};
+    const limpia = (u) => String(u || "").split("?")[0];
+    const fw = im.fixed_width || {}, fws = im.fixed_width_downsampled || fw;
+    const url = limpia(fw.webp || fw.url), previa = limpia(fws.webp || fws.url || url);
+    const ancho = Math.round(Number(fw.width) || 0), alto = Math.round(Number(fw.height) || 0);
+    if (!GIF_URL.test(url) || !GIF_URL.test(previa) || !ancho || !alto || ancho > 2000 || alto > 2000) return null;
+    const titulo = limpiarTexto(g.title, false).replace(/\s*GIF\b.*$/i, "").slice(0, 80);
+    return { id: g.id, url, previa, ancho, alto, titulo };
+  }
+
+  async buscarGifs(request, url) {
+    const nombre = await this.usuarioDe(request);
+    if (!nombre) return json({ error: "sesion" }, 401);
+    const prueba = this.env.GIF_PRUEBA === "1";
+    if (!this.env.GIPHY_CLAVE && !prueba) return json({ error: "sin_gifs" }, 503);
+    const q = limpiarTexto(url.searchParams.get("q"), false).toLowerCase().slice(0, GIF_MAX_BUSQUEDA);
+    const idioma = url.searchParams.get("idioma") === "en" ? "en" : "es";
+    const clave = q ? "b:" + idioma + ":" + q : "top";
+    const ahora = Date.now();
+    let guardado = this.gifGuardados.get(clave);
+    if (!guardado || ahora - guardado.ts > GIF_GUARDAR) {
+      // Solo las búsquedas nuevas (no guardadas) cuentan para el límite de cada persona y del servidor.
+      const mias = (this.gifBusquedas.get(nombre) || []).filter((h) => ahora - h < GIF_BUSQUEDAS_VENTANA);
+      if (mias.length >= GIF_BUSQUEDAS_MAX) return json({ error: "gif_limite" }, 429);
+      this.gifLlamadas = this.gifLlamadas.filter((h) => ahora - h < 3600 * 1000);
+      if (this.gifLlamadas.length >= GIF_LLAMADAS_HORA) return json({ error: "gif_limite" }, 429);
+      mias.push(ahora);
+      this.gifBusquedas.set(nombre, mias);
+      this.gifLlamadas.push(ahora);
+      let lista;
+      if (prueba) lista = this.gifsDePrueba(q);
+      else {
+        const p = new URLSearchParams({ api_key: this.env.GIPHY_CLAVE, limit: String(GIF_POR_PAGINA), rating: GIF_CLASIFICACION, bundle: "messaging_non_clips" });
+        if (q) { p.set("q", q); p.set("lang", idioma); }
+        let r;
+        try { r = await fetch("https://api.giphy.com/v1/gifs/" + (q ? "search" : "trending") + "?" + p.toString()); }
+        catch (e) { return json({ error: "gif_red" }, 502); }
+        if (r.status === 429) return json({ error: "gif_limite" }, 429);
+        if (!r.ok) return json({ error: "gif_red" }, 502);
+        let d;
+        try { d = await r.json(); } catch (e) { return json({ error: "gif_red" }, 502); }
+        lista = (Array.isArray(d && d.data) ? d.data : []).map((g) => this.gifDeGiphy(g)).filter(Boolean);
+      }
+      guardado = { ts: ahora, lista };
+      this.gifGuardados.set(clave, guardado);
+      if (this.gifGuardados.size > 300) this.gifGuardados.delete(this.gifGuardados.keys().next().value);
+    }
+    for (const g of guardado.lista) {
+      this.sql.exec(`INSERT INTO gifs (id, url, previa, ancho, alto, ts) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET url = excluded.url, previa = excluded.previa, ancho = excluded.ancho, alto = excluded.alto, ts = excluded.ts`,
+        g.id, g.url, g.previa, g.ancho, g.alto, ahora);
+    }
+    return json({ gifs: guardado.lista });
   }
 
   // Traduce con Workers AI. TRADUCTOR_PRUEBA="1" (solo al probar en la computadora) no llama a nadie.
@@ -411,6 +523,7 @@ export class SalaSocial extends DurableObject {
     if (url.pathname === "/subir" && request.method === "POST") return this.subir(request);
     const bajar = /^\/archivo\/([a-f0-9]{40})$/.exec(url.pathname);
     if (bajar && request.method === "GET") return this.bajar(request, bajar[1]);
+    if (url.pathname === "/gifs" && request.method === "GET") return this.buscarGifs(request, url);
     return new Response("No encontrado", { status: 404 });
   }
 
@@ -642,7 +755,7 @@ export class SalaSocial extends DurableObject {
       // Sin los mensajes de los chats que esta persona borró para sí.
       const ocultos = new Map(this.sql.exec("SELECT sala, hasta FROM ocultos WHERE nombre = ?", fila.nombre).toArray()
         .map((o) => [o.sala, o.hasta]));
-      const mensajes = this.sql.exec("SELECT id, sala, nombre, texto, ts, archivo, tipo, dur, ancho, alto FROM mensajes ORDER BY id").toArray()
+      const mensajes = this.sql.exec("SELECT id, sala, nombre, texto, ts, archivo, tipo, dur, ancho, alto, gif, cita FROM mensajes ORDER BY id").toArray()
         .filter((x) => esMiembro(x.sala, fila.nombre) && x.id > (ocultos.get(x.sala) || 0)).map(paraEnviar);
       const lecturas = this.sql.exec("SELECT nombre, sala, id FROM lecturas").toArray()
         .filter((x) => esMiembro(x.sala, fila.nombre)).map((x) => ({ n: x.nombre, sala: x.sala, id: x.id }));
@@ -672,18 +785,38 @@ export class SalaSocial extends DurableObject {
           : null;
         if (!arch) { this.enviar(ws, { t: "error", e: "archivo", cid: m.cid }); return; }
       }
-      if (!texto && !arch) return;
+      // GIF: solo uno que este servidor mostró en el buscador (así siempre es G o PG).
+      let gif = null;
+      if (m.gif !== undefined) {
+        const g = GIF_ID.test(String(m.gif || ""))
+          ? this.sql.exec("SELECT url, ancho, alto FROM gifs WHERE id = ?", m.gif).toArray()[0] : null;
+        if (!g || arch) { this.enviar(ws, { t: "error", e: "gif", cid: m.cid }); return; }
+        gif = { u: g.url, w: g.ancho, h: g.alto };
+      }
+      // Responder: el mensaje original tiene que estar en este mismo chat y verlo quien responde.
+      let cita = null;
+      if (m.resp !== undefined) {
+        const o = Number.isInteger(m.resp)
+          ? this.sql.exec("SELECT id, sala, nombre, texto, tipo, gif, dur FROM mensajes WHERE id = ?", m.resp).toArray()[0] : null;
+        const oculto = o && this.sql.exec("SELECT hasta FROM ocultos WHERE nombre = ? AND sala = ?", yo.nombre, sala).toArray()[0];
+        if (!o || o.sala !== sala || (oculto && o.id <= oculto.hasta)) { this.enviar(ws, { t: "error", e: "responder", cid: m.cid }); return; }
+        cita = { id: o.id, n: o.nombre, x: [...String(o.texto || "")].slice(0, MAX_CITA).join("") };
+        if (o.gif) cita.tp = "gif"; else if (o.tipo) { cita.tp = o.tipo; if (o.dur) cita.dur = o.dur; }
+      }
+      if (!texto && !arch && !gif) return;
       if ([...texto].length > MAX_LARGO) { this.enviar(ws, { t: "error", e: "largo", cid: m.cid }); return; }
       this.ultimoEnvio.set(yo.nombre, ahora);
-      const id = this.sql.exec(`INSERT INTO mensajes (sala, nombre, texto, ts, archivo, tipo, dur, ancho, alto)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, sala, yo.nombre, texto, ahora,
-        arch ? arch.clave : null, arch ? arch.tipo : null, arch ? arch.dur : 0, arch ? arch.ancho : 0, arch ? arch.alto : 0).one().id;
+      const id = this.sql.exec(`INSERT INTO mensajes (sala, nombre, texto, ts, archivo, tipo, dur, ancho, alto, gif, cita)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, sala, yo.nombre, texto, ahora,
+        arch ? arch.clave : null, arch ? arch.tipo : null, arch ? arch.dur : 0, arch ? arch.ancho : 0, arch ? arch.alto : 0,
+        gif ? JSON.stringify(gif) : null, cita ? JSON.stringify(cita) : null).one().id;
       if (arch) this.sql.exec("UPDATE archivos SET mensaje = ? WHERE clave = ?", id, arch.clave);
       this.sql.exec("UPDATE usuarios SET visto = ? WHERE nombre = ?", ahora, yo.nombre);
       this.marcarLeido(yo.nombre, sala, id);
       this.limpiar();
       const nuevo = paraEnviar({ id, sala, nombre: yo.nombre, texto, ts: ahora,
-        archivo: arch && arch.clave, tipo: arch && arch.tipo, dur: arch ? arch.dur : 0, ancho: arch ? arch.ancho : 0, alto: arch ? arch.alto : 0 });
+        archivo: arch && arch.clave, tipo: arch && arch.tipo, dur: arch ? arch.dur : 0, ancho: arch ? arch.ancho : 0, alto: arch ? arch.alto : 0,
+        gif, cita });
       this.enviarASala(sala, { t: "msg", m: nuevo, cid: m.cid });
       this.enviarASala(sala, { t: "leido", n: yo.nombre, sala, id });
       await this.limpiarArchivos();

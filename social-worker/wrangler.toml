@@ -37,6 +37,11 @@ bucket_name = "shukito-social-archivos"
 [ai]
 binding = "AI"
 
+# GIFs de Giphy. La clave NO va aquí: es un secreto.
+#   npx wrangler secret put GIPHY_CLAVE
+# La clave gratis ("beta") permite unas 100 llamadas por hora. El servidor guarda cada búsqueda 30 minutos,
+# la comparte entre todos y no hace más de 90 llamadas por hora. Solo GIFs con clasificación G o PG.
+
 [[durable_objects.bindings]]
 name = "SALA"
 class_name = "SalaSocial"
