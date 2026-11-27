@@ -915,3 +915,72 @@ html[data-tema="dia"] .otra .social-cita { background: rgba(30, 60, 110, .07); }
 .social-medio.gif { width: 220px; max-height: 300px; }
 .social-medio.gif img { display: block; width: 100%; height: 100%; object-fit: cover; background: none; }
 @media (prefers-reduced-motion: reduce) { .social-gifs { animation: none; } }
+
+
+/* =====================================================================
+   Stickers personales: botón, panel con cuadrícula y sticker en el chat
+   ===================================================================== */
+.social-boton-sticker { width: 40px; }
+.social-boton-sticker[aria-expanded="true"] { color: #3a9bf0; background: rgba(120, 180, 255, .18); }
+@media (max-width: 420px) {
+  .social-form { gap: 5px; padding-left: 6px; padding-right: 6px; }
+  .social-boton-gif, .social-boton-sticker { width: 34px; }
+  .social-adjuntar-caja .social-boton-redondo, #social-microfono { width: 38px; }
+}
+.social-stickers-cuenta { flex: 1; min-width: 0; font-size: 13px; color: var(--so-tenue); white-space: nowrap; }
+.social .social-stickers-editar { flex: none; min-height: 32px; padding: 4px 12px; font-size: 14px; }
+.social-stickers-editar[hidden] { display: none; }
+.social-stickers-editar[aria-pressed="true"] { color: #fff; background: var(--ae-boton); border-color: rgba(10, 60, 130, .8); }
+.social-stickers-lista { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: auto; }
+@media (min-width: 560px) { .social-stickers-lista { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.social-sticker-celda { position: relative; aspect-ratio: 1; }
+.social-sticker-item, .social-sticker-mas {
+  display: grid; place-items: center; width: 100%; height: 100%; aspect-ratio: 1; padding: 6%; cursor: pointer;
+  border: 1px solid transparent; border-radius: 12px; background: rgba(127, 140, 160, .12);
+}
+.social-sticker-item img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.social-sticker-item:hover:not(:disabled), .social-sticker-item:focus-visible { border-color: #3a9bf0; background: rgba(120, 180, 255, .18); outline: none; }
+.social-sticker-item:disabled { cursor: default; opacity: .8; }
+.social-sticker-celda.error .social-sticker-item { background: rgba(255, 120, 100, .15); }
+.social-sticker-mas {
+  color: #3a9bf0; border: 2px dashed rgba(90, 160, 240, .6); background: rgba(120, 180, 255, .08);
+}
+.social-sticker-mas svg { width: 34px; height: 34px; }
+.social-sticker-mas:hover:not(:disabled), .social-sticker-mas:focus-visible { background: rgba(120, 180, 255, .2); outline: none; border-color: #3a9bf0; }
+.social-sticker-mas:disabled { opacity: .45; cursor: default; }
+.social-stickers.editando .social-sticker-item img { animation: social-temblor .5s ease-in-out infinite alternate; }
+@keyframes social-temblor { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
+.social-sticker-quitar {
+  position: absolute; top: -6px; right: -6px; z-index: 1; width: 30px; height: 30px; display: grid; place-items: center;
+  padding: 0; border-radius: 50%; cursor: pointer; color: #fff;
+  border: 1px solid rgba(120, 20, 10, .8);
+  background: linear-gradient(180deg, #ff8a7a 0%, #e5432f 50%, #c92a17 52%, #e0442f 100%);
+  box-shadow: 0 2px 5px rgba(60, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .7);
+}
+.social-sticker-quitar::before { content: ""; position: absolute; inset: -6px; }
+.social-sticker-quitar svg { width: 15px; height: 15px; }
+.social-sticker-quitar:focus-visible { outline: 3px solid #fff; outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .social-stickers.editando .social-sticker-item img { animation: none; } }
+
+/* El sticker en el chat: sin burbuja, tamaño mediano y la hora debajo */
+.social-medio.sticker { width: 150px; max-width: 100%; background: none; overflow: visible; margin: 0; }
+.social-medio.sticker img { display: block; width: 100%; height: 100%; object-fit: contain; background: none; }
+.social-medio.sticker .social-medio-espera { position: static; min-height: 120px; }
+.social .social-fila.con-sticker .social-burbuja,
+.social.en-conversacion .social-fila.con-sticker .social-burbuja {
+  padding: 0; background: none; border: 0; box-shadow: none; text-shadow: none; color: var(--so-texto);
+}
+.social-fila.con-sticker .social-autor { padding: 0 4px 2px; }
+.social-fila.con-sticker .social-cita { background: var(--ae-cristal, var(--so-otra)), var(--so-otra); border-top: 1px solid var(--ae-cristal-borde, transparent); }
+.social-fila.con-sticker .social-pie {
+  margin-top: 4px; padding: 2px 8px; border-radius: 99px; opacity: 1; color: #fff;
+  background: rgba(10, 25, 45, .55); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .15);
+}
+html[data-tema="dia"] .social-fila.con-sticker .social-pie { color: #1e2430; background: rgba(255, 255, 255, .85); box-shadow: 0 1px 2px rgba(40, 70, 110, .2); }
+.social-fila.con-sticker .social-pie .social-marca.leido { color: #8fdcff; }
+html[data-tema="dia"] .social-fila.con-sticker .social-pie .social-marca.leido { color: #0a76a3; }
+.social-fila.con-sticker.reaccionando .social-burbuja { box-shadow: none; }
+.social-fila.con-sticker.reaccionando .social-medio.sticker { filter: drop-shadow(0 0 6px rgba(90, 180, 255, .9)); }
+.social-fila.con-sticker.resaltada .social-burbuja { animation: none; }
+.social-fila.con-sticker.resaltada .social-medio.sticker { animation: social-resalte-sticker 1.8s ease-out; }
+@keyframes social-resalte-sticker { 0%, 35% { filter: drop-shadow(0 0 10px rgba(90, 180, 255, 1)); } 100% { filter: none; } }

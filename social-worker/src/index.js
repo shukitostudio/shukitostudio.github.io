@@ -37,6 +37,41 @@ const SIN_USAR_HORAS = 1;                  // un archivo subido que no se envió
 const CLAVE_ARCHIVO = /^[a-f0-9]{40}$/;
 const MAX_SUBIDA = 8 * 1024 * 1024;        // el más grande de todos (video)
 
+// ---------- Stickers personales (R2, prefijo "s/") ----------
+// Se guardan con el prefijo "s/" a propósito: la regla del bucket que borra a los 2 días solo mira "m/".
+// Duran mientras exista la cuenta: se borran al tocar la X, al borrar la cuenta o cuando la cuenta caduca.
+// Al enviar uno al chat se hace una copia en "m/" que sigue las reglas de los mensajes (24 horas).
+const STICKER_MAX = 500 * 1024;            // bytes por sticker (ya reducido en el teléfono)
+const STICKER_LADO = 520;                  // píxeles como máximo por lado (512 y un poco de margen)
+const STICKERS_POR_PERSONA = 60;
+const STICKER_SUBIDAS_MAX = 30;            // stickers nuevos por persona...
+const STICKER_SUBIDAS_VENTANA = 10 * 60 * 1000; // ...cada 10 minutos
+
+// Tipo y tamaño leídos de los propios bytes (no de lo que diga el teléfono). null si no es PNG, GIF o WebP.
+function leerImagen(buf) {
+  const b = new Uint8Array(buf);
+  const dv = new DataView(buf);
+  const ascii = (i, n) => String.fromCharCode(...b.subarray(i, i + n));
+  if (b.length > 24 && b[0] === 0x89 && ascii(1, 3) === "PNG" && ascii(12, 4) === "IHDR") {
+    return { mime: "image/png", ancho: dv.getUint32(16), alto: dv.getUint32(20) };
+  }
+  if (b.length > 10 && (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a")) {
+    return { mime: "image/gif", ancho: dv.getUint16(6, true), alto: dv.getUint16(8, true) };
+  }
+  if (b.length > 30 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+    const tipo = ascii(12, 4);
+    if (tipo === "VP8X") return { mime: "image/webp", ancho: 1 + (b[24] | b[25] << 8 | b[26] << 16), alto: 1 + (b[27] | b[28] << 8 | b[29] << 16) };
+    if (tipo === "VP8L" && b[20] === 0x2f) {
+      const v = dv.getUint32(21, true);
+      return { mime: "image/webp", ancho: 1 + (v & 0x3fff), alto: 1 + ((v >> 14) & 0x3fff) };
+    }
+    if (tipo === "VP8 " && b[23] === 0x9d && b[24] === 0x01 && b[25] === 0x2a) {
+      return { mime: "image/webp", ancho: dv.getUint16(26, true) & 0x3fff, alto: dv.getUint16(28, true) & 0x3fff };
+    }
+  }
+  return null;
+}
+
 // ---------- Reacciones a los mensajes ----------
 const REACCIONES = ["👍", "❤️", "😢", "😡", "😂"];
 
@@ -73,7 +108,7 @@ function origenPermitido(request, env) {
 function cors(origen) {
   return {
     "Access-Control-Allow-Origin": origen,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Tipo, X-Duracion, X-Ancho, X-Alto",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin, Authorization",
@@ -116,7 +151,11 @@ export default {
     const esSubir = url.pathname === "/subir" && request.method === "POST";
     const bajar = /^\/archivo\/([a-f0-9]{40})$/.exec(url.pathname);
     const gifs = url.pathname === "/gifs" && request.method === "GET";
-    if (esSubir || gifs || (bajar && request.method === "GET")) {
+    // Stickers: /stickers (lista), /sticker (subir), /sticker/<clave> (ver o borrar).
+    const subirSticker = url.pathname === "/sticker" && request.method === "POST";
+    const stickers = (url.pathname === "/stickers" && request.method === "GET")
+      || (/^\/sticker\/[a-f0-9]{40}$/.test(url.pathname) && (request.method === "GET" || request.method === "DELETE"));
+    if (esSubir || gifs || subirSticker || stickers || (bajar && request.method === "GET")) {
       const conCors = (r) => {
         const h = new Headers(r.headers);
         for (const [k, v] of Object.entries(cors(origen))) h.set(k, v);
@@ -130,6 +169,14 @@ export default {
         if (declarado > MAX_SUBIDA) return conCors(json({ error: "grande" }, 413));
         cuerpo = await request.arrayBuffer();
         if (cuerpo.byteLength > MAX_SUBIDA) return conCors(json({ error: "grande" }, 413));
+        cabeceras.set("Content-Length", String(cuerpo.byteLength));
+      }
+      if (subirSticker) {
+        const declarado = Number(request.headers.get("Content-Length") || 0);
+        if (!declarado) return conCors(json({ error: "vacio" }, 411));
+        if (declarado > STICKER_MAX) return conCors(json({ error: "sticker_grande" }, 413));
+        cuerpo = await request.arrayBuffer();
+        if (cuerpo.byteLength > STICKER_MAX) return conCors(json({ error: "sticker_grande" }, 413));
         cabeceras.set("Content-Length", String(cuerpo.byteLength));
       }
       const r = await sala.fetch(new Request("https://sala" + url.pathname + (gifs ? url.search : ""), {
@@ -235,6 +282,11 @@ export class SalaSocial extends DurableObject {
     const columnas2 = String(this.sql.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mensajes'").one().sql);
     if (!columnas2.includes("gif")) this.sql.exec("ALTER TABLE mensajes ADD COLUMN gif TEXT");
     if (!columnas2.includes("cita")) this.sql.exec("ALTER TABLE mensajes ADD COLUMN cita TEXT");
+    // Stickers de cada persona (el archivo está en R2 como "s/<clave>").
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS stickers (
+      clave TEXT PRIMARY KEY, nombre TEXT NOT NULL COLLATE NOCASE, mime TEXT NOT NULL, tam INTEGER NOT NULL,
+      ancho INTEGER NOT NULL, alto INTEGER NOT NULL, ts INTEGER NOT NULL)`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS stickers_nombre ON stickers (nombre, ts)");
     // GIFs que el servidor mostró en el buscador (ya filtrados G/PG): solo estos se pueden enviar.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS gifs (
       id TEXT PRIMARY KEY, url TEXT NOT NULL, previa TEXT NOT NULL, ancho INTEGER NOT NULL, alto INTEGER NOT NULL, ts INTEGER NOT NULL)`);
@@ -450,7 +502,68 @@ export class SalaSocial extends DurableObject {
 
   // Borra de R2 los archivos cuyo mensaje ya no existe (se borró solo, lo borró el administrador...)
   // y los que se subieron pero nunca se enviaron.
+  // Stickers de cuentas que ya no existen (borradas, sacadas o caducadas).
+  async limpiarStickers() {
+    const sobran = this.sql.exec("SELECT clave FROM stickers WHERE nombre NOT IN (SELECT nombre FROM usuarios) LIMIT 500")
+      .toArray().map((f) => f.clave);
+    if (!sobran.length) return;
+    if (this.env.ARCHIVOS) {
+      try { await this.env.ARCHIVOS.delete(sobran.map((c) => "s/" + c)); } catch (e) { return; }
+    }
+    for (const c of sobran) this.sql.exec("DELETE FROM stickers WHERE clave = ?", c);
+  }
+
+  // ---------- Stickers ----------
+  listaStickers(nombre) {
+    return this.sql.exec("SELECT clave, ancho, alto FROM stickers WHERE nombre = ? ORDER BY ts DESC", nombre).toArray()
+      .map((f) => ({ clave: f.clave, ancho: f.ancho, alto: f.alto }));
+  }
+
+  async subirSticker(request) {
+    const nombre = await this.usuarioDe(request);
+    if (!nombre) return json({ error: "sesion" }, 401);
+    if (!this.env.ARCHIVOS) return json({ error: "sin_archivos" }, 503);
+    const ahora = Date.now();
+    const cuantos = this.sql.exec("SELECT COUNT(*) AS c FROM stickers WHERE nombre = ?", nombre).one().c;
+    if (cuantos >= STICKERS_POR_PERSONA) return json({ error: "stickers_lleno" }, 409);
+    const recientes = this.sql.exec("SELECT COUNT(*) AS c FROM stickers WHERE nombre = ? AND ts > ?", nombre, ahora - STICKER_SUBIDAS_VENTANA).one().c;
+    if (recientes >= STICKER_SUBIDAS_MAX) return json({ error: "muchos" }, 429);
+    const datos = await request.arrayBuffer();
+    if (!datos.byteLength) return json({ error: "vacio" }, 400);
+    if (datos.byteLength > STICKER_MAX) return json({ error: "sticker_grande" }, 413);
+    const img = leerImagen(datos);
+    if (!img || !img.ancho || !img.alto) return json({ error: "sticker_formato" }, 415);
+    if (img.ancho > STICKER_LADO || img.alto > STICKER_LADO) return json({ error: "sticker_lado" }, 400);
+    const clave = aleatorio(20);
+    await this.env.ARCHIVOS.put("s/" + clave, datos, { httpMetadata: { contentType: img.mime } });
+    this.sql.exec("INSERT INTO stickers (clave, nombre, mime, tam, ancho, alto, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      clave, nombre, img.mime, datos.byteLength, img.ancho, img.alto, ahora);
+    return json({ sticker: { clave, ancho: img.ancho, alto: img.alto }, total: cuantos + 1, max: STICKERS_POR_PERSONA });
+  }
+
+  // Solo la dueña o el dueño del sticker puede verlo o borrarlo desde su colección.
+  async verSticker(request, clave, borrar) {
+    const nombre = await this.usuarioDe(request);
+    if (!nombre) return json({ error: "sesion" }, 401);
+    const f = this.sql.exec("SELECT mime FROM stickers WHERE clave = ? AND nombre = ?", clave, nombre).toArray()[0];
+    if (!f) return json({ error: "no_existe" }, 404);
+    if (borrar) {
+      if (this.env.ARCHIVOS) await this.env.ARCHIVOS.delete("s/" + clave);
+      this.sql.exec("DELETE FROM stickers WHERE clave = ?", clave);
+      return json({ ok: true });
+    }
+    const obj = this.env.ARCHIVOS ? await this.env.ARCHIVOS.get("s/" + clave) : null;
+    if (!obj) return json({ error: "no_existe" }, 404);
+    return new Response(obj.body, {
+      headers: {
+        "Content-Type": f.mime, "Content-Length": String(obj.size), "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline",
+      },
+    });
+  }
+
   async limpiarArchivos() {
+    await this.limpiarStickers();
     const limite = Date.now() - SIN_USAR_HORAS * 3600 * 1000;
     const sobran = this.sql.exec(`SELECT clave FROM archivos
       WHERE (mensaje IS NULL AND ts < ?) OR (mensaje IS NOT NULL AND mensaje NOT IN (SELECT id FROM mensajes))
@@ -539,6 +652,14 @@ export class SalaSocial extends DurableObject {
     const bajar = /^\/archivo\/([a-f0-9]{40})$/.exec(url.pathname);
     if (bajar && request.method === "GET") return this.bajar(request, bajar[1]);
     if (url.pathname === "/gifs" && request.method === "GET") return this.buscarGifs(request, url);
+    if (url.pathname === "/sticker" && request.method === "POST") return this.subirSticker(request);
+    if (url.pathname === "/stickers" && request.method === "GET") {
+      const nombre = await this.usuarioDe(request);
+      if (!nombre) return json({ error: "sesion" }, 401);
+      return json({ stickers: this.listaStickers(nombre), max: STICKERS_POR_PERSONA });
+    }
+    const st = /^\/sticker\/([a-f0-9]{40})$/.exec(url.pathname);
+    if (st && (request.method === "GET" || request.method === "DELETE")) return this.verSticker(request, st[1], request.method === "DELETE");
     return new Response("No encontrado", { status: 404 });
   }
 
@@ -817,6 +938,22 @@ export class SalaSocial extends DurableObject {
         if (!o || o.sala !== sala || (oculto && o.id <= oculto.hasta)) { this.enviar(ws, { t: "error", e: "responder", cid: m.cid }); return; }
         cita = { id: o.id, n: o.nombre, x: [...String(o.texto || "")].slice(0, MAX_CITA).join("") };
         if (o.gif) cita.tp = "gif"; else if (o.tipo) { cita.tp = o.tipo; if (o.dur) cita.dur = o.dur; }
+      }
+      // Sticker de mi colección: se copia a "m/" como un archivo más del mensaje (se borra con él a las 24 horas).
+      if (m.sticker !== undefined) {
+        const st = CLAVE_ARCHIVO.test(String(m.sticker || ""))
+          ? this.sql.exec("SELECT clave, mime, tam, ancho, alto FROM stickers WHERE clave = ? AND nombre = ?", m.sticker, yo.nombre).toArray()[0]
+          : null;
+        if (!st || arch || gif || !this.env.ARCHIVOS) { this.enviar(ws, { t: "error", e: "sticker", cid: m.cid }); return; }
+        this.ultimoEnvio.set(yo.nombre, ahora); // antes de esperar a R2, para que no se cuelen envíos seguidos
+        const obj = await this.env.ARCHIVOS.get("s/" + st.clave);
+        if (!obj) { this.enviar(ws, { t: "error", e: "sticker", cid: m.cid }); return; }
+        const datos = await obj.arrayBuffer();
+        const copia = aleatorio(20);
+        await this.env.ARCHIVOS.put("m/" + copia, datos, { httpMetadata: { contentType: st.mime } });
+        this.sql.exec(`INSERT INTO archivos (clave, nombre, tipo, mime, tam, dur, ancho, alto, ts, mensaje)
+          VALUES (?, ?, 'sticker', ?, ?, 0, ?, ?, ?, NULL)`, copia, yo.nombre, st.mime, datos.byteLength, st.ancho, st.alto, Date.now());
+        arch = { clave: copia, tipo: "sticker", dur: 0, ancho: st.ancho, alto: st.alto };
       }
       if (!texto && !arch && !gif) return;
       if ([...texto].length > MAX_LARGO) { this.enviar(ws, { t: "error", e: "largo", cid: m.cid }); return; }

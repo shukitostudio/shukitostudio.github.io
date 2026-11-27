@@ -282,6 +282,7 @@
     cerrarSelectorReaccion();
     cerrarMenuAdjuntar(false);
     cerrarGifs(false);
+    cerrarStickers(false);
     cancelarRespuesta();
     raiz.hidden = true;
     document.documentElement.classList.remove('social-abierto');
@@ -378,6 +379,7 @@
     else if (!menu.hidden) cerrarMenu(true);
     else if (!selector.hidden) cerrarSelectorReaccion(true);
     else if (!ventanaGifs.hidden) cerrarGifs(true);
+    else if (!ventanaStickers.hidden) cerrarStickers(true);
     else if (!menuAdjuntar.hidden) cerrarMenuAdjuntar(true);
     else if (!menuChat.hidden) cerrarMenuChat(true);
     else if (!$('social-estado-form').hidden) cancelarEstado();
@@ -504,6 +506,7 @@
     cancelarGrabacion();
     cerrarVisor();
     soltarArchivos();
+    soltarStickers();
     traducciones = {}; verTraduccion = {}; traduciendo = {};
     reaccionesDe = {};
     bloqueado = false;
@@ -704,6 +707,7 @@
       caja.value = '';
       cancelarRespuesta();
       cerrarGifs(false);
+      cerrarStickers(false);
       ajustarCaja();
       pintarTodo();
     }
@@ -1307,6 +1311,7 @@
     return Math.floor(seg / 60) + ':' + ('0' + (seg % 60)).slice(-2);
   }
   function etiquetaMedio(m) {
+    if (m.tipo === 'sticker') return '✨ ' + t('socialStickerNombre');
     if (m.tipo === 'foto') return '📷 ' + t('socialFotoNombre');
     if (m.tipo === 'video') return '🎥 ' + t('socialVideoNombre') + ' (' + duracion(m.dur) + ')';
     return '🎤 ' + t('socialAudioNombre') + ' (' + duracion(m.dur) + ')';
@@ -1377,7 +1382,11 @@
     var espera = caja.querySelector('.social-medio-espera');
     cargarArchivo(clave).then(function (url) {
       var el;
-      if (tipo === 'foto') {
+      if (tipo === 'sticker') {
+        el = document.createElement('img');
+        el.alt = t('socialStickerNombre');
+        el.src = url;
+      } else if (tipo === 'foto') {
         el = document.createElement('button');
         el.type = 'button';
         el.className = 'social-medio-boton';
@@ -1827,6 +1836,7 @@
     $('social-adjuntar').disabled = true;
     $('social-microfono').disabled = true;
     $('social-gif').disabled = true;
+    $('social-sticker').disabled = true;
     reintento = Math.min(reintento + 1, 6);
     temporizador = setTimeout(conectar, Math.min(1000 * Math.pow(1.7, reintento), 15000));
   }
@@ -2016,7 +2026,7 @@
         : m.e === 'sala' ? t('socialErrSala') : m.e === 'archivo' ? t('socialErrArchivo')
         : m.e === 'traducir' ? t('socialErrTraducir') : m.e === 'traducir_limite' ? t('socialErrTraducirLimite')
         : m.e === 'sin_traductor' ? t('socialErrSinTraductor') : m.e === 'responder' ? t('socialErrResponder')
-        : m.e === 'gif' ? t('socialErrGif') : '');
+        : m.e === 'gif' ? t('socialErrGif') : m.e === 'sticker' ? t('socialErrSticker') : '');
       if (m.id && traduciendo[m.id]) {
         delete traduciendo[m.id];
         var filaE = lista.querySelector('.social-fila[data-id="' + Number(m.id) + '"]');
@@ -2089,6 +2099,8 @@
     if (medio && medio.cita) b.appendChild(crearCita(medio.cita));
     if (medio && medio.gif) { b.appendChild(crearGif(medio.gif)); fila.classList.add('con-gif'); }
     if (medio && medio.archivo) b.appendChild(crearMedio(medio));
+    if (medio && medio.stickerLocal) b.appendChild(crearStickerLocal(medio.stickerLocal, medio.ancho, medio.alto));
+    if (medio && (medio.tipo === 'sticker' || medio.stickerLocal)) fila.classList.add('con-sticker');
     if (texto) {
       var cuerpo = document.createElement('span');
       cuerpo.className = 'social-cuerpo';
@@ -2252,6 +2264,7 @@
     cerrarSelectorReaccion();
     cerrarMenuAdjuntar(false);
     cerrarGifs(false);
+    cerrarStickers(false);
     selectorId = id;
     selectorFila = fila;
     botonCaritaActivo = bt;
@@ -2411,7 +2424,7 @@
       mini.hidden = false;
     };
     if (r.gif && gifPermitido(r.gif.u)) ponerMini(r.gif.u);
-    else if (r.tp === 'foto' && r.archivo) cargarArchivo(r.archivo).then(ponerMini, function () { /* sin miniatura */ });
+    else if ((r.tp === 'foto' || r.tp === 'sticker') && r.archivo) cargarArchivo(r.archivo).then(ponerMini, function () { /* sin miniatura */ });
   }
   $('social-respuesta-cancelar').addEventListener('click', function () { cancelarRespuesta(true); });
 
@@ -2486,6 +2499,7 @@
     cerrarMenuAdjuntar(false);
     cerrarSelectorReaccion();
     cerrarMenuChat(false);
+    cerrarStickers(false);
     ventanaGifs.hidden = false;
     botonGif.setAttribute('aria-expanded', 'true');
     buscadorGif.value = '';
@@ -2586,6 +2600,267 @@
     }, espera);
   }
 
+  /* ---------- Stickers personales (solo los ve su dueño; duran mientras exista la cuenta) ---------- */
+  var STICKER_LADO = 512, STICKER_MAX = 500 * 1024;
+  var ventanaStickers = $('social-stickers');
+  var botonSticker = $('social-sticker');
+  var listaStickers = $('social-stickers-lista');
+  var botonEditarStickers = $('social-stickers-editar');
+  var entradaSticker = $('social-sticker-archivo');
+  var misStickers = null;       // [{clave, ancho, alto}] o null si todavía no se cargaron
+  var maxStickers = 60;
+  var editandoStickers = false;
+  var subiendoSticker = false;
+  var stickersCargados = {};    // clave -> promesa de la dirección local (blob:)
+  var pedidoStickers = 0;
+
+  function estadoStickers(texto) { $('social-stickers-estado').textContent = texto || ''; }
+  function cargarSticker(clave) {
+    if (!stickersCargados[clave]) {
+      stickersCargados[clave] = fetch(SOCIAL_SERVIDOR + '/sticker/' + clave, {
+        headers: { Authorization: 'Bearer ' + (sesion ? sesion.token : '') }, cache: 'no-store'
+      }).then(function (r) { if (!r.ok) throw r.status; return r.blob(); })
+        .then(function (b) { return URL.createObjectURL(b); });
+      stickersCargados[clave].catch(function () { delete stickersCargados[clave]; });
+    }
+    return stickersCargados[clave];
+  }
+  function soltarStickers() {
+    for (var c in stickersCargados) stickersCargados[c].then(function (u) { URL.revokeObjectURL(u); }, function () { /* nada */ });
+    stickersCargados = {};
+    misStickers = null;
+  }
+  function pedirStickers() {
+    var n = ++pedidoStickers;
+    if (!misStickers) estadoStickers(t('socialStickersCargando'));
+    return fetch(SOCIAL_SERVIDOR + '/stickers', {
+      headers: { Authorization: 'Bearer ' + (sesion ? sesion.token : '') }, cache: 'no-store'
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw (d && d.error) || 'red'; return d; });
+    }).then(function (d) {
+      if (n !== pedidoStickers) return;
+      misStickers = (d.stickers || []).filter(function (x) { return x && /^[a-f0-9]{40}$/.test(x.clave); });
+      maxStickers = d.max || 60;
+      pintarStickers();
+    }).catch(function (e) {
+      if (n !== pedidoStickers) return;
+      estadoStickers(t(e === 'sesion' ? 'socialErrSesion' : 'socialErrStickers'));
+    });
+  }
+  function abrirStickers() {
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    cerrarMenuAdjuntar(false);
+    cerrarSelectorReaccion();
+    cerrarMenuChat(false);
+    cerrarGifs(false);
+    editandoStickers = false;
+    ventanaStickers.hidden = false;
+    botonSticker.setAttribute('aria-expanded', 'true');
+    pintarStickers();
+    pedirStickers();
+    $('social-stickers-cerrar').focus();
+    bajar(true);
+  }
+  function cerrarStickers(devolverFoco) {
+    if (ventanaStickers.hidden) return;
+    ventanaStickers.hidden = true;
+    botonSticker.setAttribute('aria-expanded', 'false');
+    editandoStickers = false;
+    estadoStickers('');
+    if (devolverFoco) botonSticker.focus();
+  }
+  botonSticker.addEventListener('click', function () { if (ventanaStickers.hidden) abrirStickers(); else cerrarStickers(true); });
+  $('social-stickers-cerrar').addEventListener('click', function () { cerrarStickers(true); });
+  botonEditarStickers.addEventListener('click', function () {
+    editandoStickers = !editandoStickers;
+    pintarStickers();
+    estadoStickers(editandoStickers ? t('socialStickerEditando') : '');
+  });
+
+  function pintarStickers() {
+    var lista = misStickers || [];
+    var lleno = lista.length >= maxStickers;
+    ventanaStickers.classList.toggle('editando', editandoStickers);
+    botonEditarStickers.textContent = t(editandoStickers ? 'socialStickerListo' : 'socialStickerEditar');
+    botonEditarStickers.setAttribute('aria-pressed', editandoStickers ? 'true' : 'false');
+    botonEditarStickers.hidden = !lista.length && !editandoStickers;
+    $('social-stickers-cuenta').textContent = misStickers ? t('socialStickerCuenta', { n: lista.length, max: maxStickers }) : '';
+    listaStickers.textContent = '';
+    // Primero el "+" (si no está editando)
+    if (!editandoStickers) {
+      var mas = document.createElement('button');
+      mas.type = 'button';
+      mas.className = 'social-sticker-mas';
+      mas.setAttribute('aria-label', t('socialStickerAnadir'));
+      mas.title = t('socialStickerAnadir');
+      mas.disabled = subiendoSticker || !misStickers;
+      mas.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>';
+      mas.addEventListener('click', function () {
+        if (lleno) { estadoStickers(t('socialErrStickerLleno')); return; }
+        entradaSticker.value = '';
+        entradaSticker.click();
+      });
+      listaStickers.appendChild(mas);
+    }
+    if (misStickers && !lista.length && !editandoStickers) estadoStickers(t('socialStickersVacio'));
+    lista.forEach(function (st) {
+      var celda = document.createElement('div');
+      celda.className = 'social-sticker-celda';
+      var bt = document.createElement('button');
+      bt.type = 'button';
+      bt.className = 'social-sticker-item';
+      bt.setAttribute('aria-label', t('socialStickerEnviar'));
+      bt.disabled = editandoStickers;
+      var img = document.createElement('img');
+      img.alt = '';
+      bt.appendChild(img);
+      cargarSticker(st.clave).then(function (u) { img.src = u; }, function () { celda.classList.add('error'); });
+      bt.addEventListener('click', function () { if (!editandoStickers) enviarSticker(st); });
+      celda.appendChild(bt);
+      if (editandoStickers) {
+        var x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'social-sticker-quitar';
+        x.setAttribute('aria-label', t('socialStickerQuitar'));
+        x.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
+        x.addEventListener('click', function () { borrarSticker(st, x); });
+        celda.appendChild(x);
+      }
+      listaStickers.appendChild(celda);
+    });
+  }
+
+  function borrarSticker(st, boton) {
+    boton.disabled = true;
+    fetch(SOCIAL_SERVIDOR + '/sticker/' + st.clave, {
+      method: 'DELETE', headers: { Authorization: 'Bearer ' + (sesion ? sesion.token : '') }
+    }).then(function (r) {
+      if (!r.ok && r.status !== 404) throw r.status;
+      misStickers = (misStickers || []).filter(function (x) { return x.clave !== st.clave; });
+      if (stickersCargados[st.clave]) {
+        stickersCargados[st.clave].then(function (u) { URL.revokeObjectURL(u); }, function () { /* nada */ });
+        delete stickersCargados[st.clave];
+      }
+      if (!misStickers.length) editandoStickers = false;
+      pintarStickers();
+      estadoStickers(t('socialStickerBorrado'));
+      var siguiente = listaStickers.querySelector('.social-sticker-quitar') || botonEditarStickers;
+      if (!siguiente.hidden) siguiente.focus();
+    }).catch(function () { boton.disabled = false; estadoStickers(t('socialErrRed')); });
+  }
+
+  // Reduce a 512 × 512 como máximo conservando la transparencia (WebP; si el navegador no sabe, PNG).
+  // Un archivo que ya es pequeño se sube tal cual (así un GIF o WebP animado sigue animado).
+  function tipoDe(archivo) {
+    var t2 = String(archivo.type || '').toLowerCase();
+    if (/^image\/(png|webp|gif)$/.test(t2)) return t2;
+    var m = /\.(png|webp|gif)$/i.exec(archivo.name || '');
+    return m ? 'image/' + m[1].toLowerCase() : '';
+  }
+  function prepararSticker(archivo) {
+    return new Promise(function (ok, mal) {
+      var tipo = tipoDe(archivo);
+      if (!tipo) { mal('sticker_formato'); return; }
+      var url = URL.createObjectURL(archivo);
+      var img = new Image();
+      img.onerror = function () { URL.revokeObjectURL(url); mal('sticker_formato'); };
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        var w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) { mal('sticker_formato'); return; }
+        if (w <= STICKER_LADO && h <= STICKER_LADO && archivo.size <= STICKER_MAX) { ok({ blob: archivo, mime: tipo }); return; }
+        var pasos = [[STICKER_LADO, 0.9], [STICKER_LADO, 0.75], [420, 0.75], [360, 0.7], [300, 0.65], [256, 0.6]];
+        (function probar(i) {
+          if (i >= pasos.length) { mal('sticker_grande'); return; }
+          var escala = Math.min(1, pasos[i][0] / Math.max(w, h));
+          var lienzo = document.createElement('canvas');
+          lienzo.width = Math.max(1, Math.round(w * escala));
+          lienzo.height = Math.max(1, Math.round(h * escala));
+          var ctx = lienzo.getContext('2d');
+          ctx.clearRect(0, 0, lienzo.width, lienzo.height);
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, lienzo.width, lienzo.height);
+          lienzo.toBlob(function (b) {
+            var tipoB = b && b.type;
+            var listo = function (b2) {
+              if (b2 && b2.size <= STICKER_MAX) ok({ blob: b2, mime: b2.type });
+              else probar(i + 1);
+            };
+            if (b && tipoB === 'image/webp') listo(b);
+            else lienzo.toBlob(listo, 'image/png'); // Safari antiguo no sabe hacer WebP
+          }, 'image/webp', pasos[i][1]);
+        })(0);
+      };
+      img.src = url;
+    });
+  }
+
+  entradaSticker.addEventListener('change', function () {
+    var archivo = entradaSticker.files && entradaSticker.files[0];
+    entradaSticker.value = '';
+    if (!archivo) return;
+    subiendoSticker = true;
+    pintarStickers();
+    estadoStickers(t('socialStickerPreparando'));
+    prepararSticker(archivo).then(function (res) {
+      estadoStickers(t('socialStickerSubiendo'));
+      return fetch(SOCIAL_SERVIDOR + '/sticker', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + (sesion ? sesion.token : ''), 'Content-Type': res.mime },
+        body: res.blob
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw (d && d.error) || 'red'; return d; });
+      });
+    }).then(function (d) {
+      subiendoSticker = false;
+      misStickers = [d.sticker].concat(misStickers || []);
+      maxStickers = d.max || maxStickers;
+      pintarStickers();
+      estadoStickers(t('socialStickerAnadido'));
+    }).catch(function (e) {
+      subiendoSticker = false;
+      pintarStickers();
+      estadoStickers(t({
+        sticker_formato: 'socialErrStickerFormato', tipo: 'socialErrStickerFormato', sticker_grande: 'socialErrStickerGrande',
+        grande: 'socialErrStickerGrande', stickers_lleno: 'socialErrStickerLleno', sticker_lado: 'socialErrStickerLado',
+        muchos: 'socialErrMuchos', sesion: 'socialErrSesion', sin_archivos: 'socialErrSinArchivos'
+      }[e] || 'socialErrRed'));
+    });
+  });
+
+  // Burbuja pendiente: el sticker se ve enseguida desde la copia que ya está en el teléfono.
+  function crearStickerLocal(url, ancho, alto) {
+    var c = document.createElement('div');
+    c.className = 'social-medio sticker';
+    if (ancho && alto) c.style.aspectRatio = ancho + ' / ' + alto;
+    var img = document.createElement('img');
+    img.alt = t('socialStickerNombre');
+    img.src = url;
+    c.appendChild(img);
+    return c;
+  }
+  function enviarSticker(st) {
+    if (!ws || ws.readyState !== 1) { mostrarAviso(t('socialErrRed')); return; }
+    var sala = salaActual;
+    var resp = respuestaPara(sala);
+    cerrarStickers(false);
+    cancelarRespuesta();
+    var espera = Math.max(0, 1000 - (Date.now() - ultimoEnvio));
+    ultimoEnvio = Date.now() + espera;
+    var cid = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    cargarSticker(st.clave).then(function (url) {
+      var fila = ponerPendiente(cid, '', { stickerLocal: url, ancho: st.ancho, alto: st.alto, cita: resp });
+      bajar(false);
+      setTimeout(function () {
+        if (!ws || ws.readyState !== 1) { delete pendientes[cid]; fila.remove(); mostrarAviso(t('socialErrRed')); return; }
+        var datos = { t: 'msg', sala: sala, texto: '', sticker: st.clave, cid: cid };
+        if (resp) datos.resp = resp.id;
+        ws.send(JSON.stringify(datos));
+      }, espera);
+    }, function () { mostrarAviso(t('socialErrSticker')); });
+    botonSticker.focus({ preventScroll: true });
+  }
+
   /* ---------- Escribir y enviar ---------- */
   function largo(s) { return Array.from(s).length; }
   function ajustarCaja() {
@@ -2602,6 +2877,7 @@
     $('social-adjuntar').disabled = !conectado;
     $('social-microfono').disabled = !conectado;
     $('social-gif').disabled = !conectado;
+    $('social-sticker').disabled = !conectado;
   }
   caja.addEventListener('input', function () {
     ajustarCaja();
@@ -2652,6 +2928,7 @@
     actualizarAsterisco();
     pintarRespuesta();
     if (!ventanaGifs.hidden) cargarGifs(buscadorGif.value);
+    if (!ventanaStickers.hidden) pintarStickers();
     if (!abierto) return;
     if (sesion && !chat.hidden) { pintarPerfil(); pintarCabeceraSala(); }
     if (sesion && !chat.hidden && ws && ws.readyState === 1) {

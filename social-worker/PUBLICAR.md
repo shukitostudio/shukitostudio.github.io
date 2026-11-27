@@ -60,6 +60,7 @@ En un iPhone (Safari) y en un Android (Chrome):
 - [ ] **Audio**: el navegador pide el micrófono, se graba, se envía y se escucha en el otro teléfono.
 - [ ] **Responder** (carita → Responder) a un texto, una foto y un GIF, en el general y en un privado. Tocar la cita lleva al mensaje original.
 - [ ] **GIF**: abrir, ver los populares, buscar (por ejemplo "gato"), enviar. Se ve en el otro teléfono.
+- [ ] **Stickers**: añadir uno (PNG con fondo transparente y un GIF animado), enviarlo, responder con uno, borrarlo con Editar. Al día siguiente sigue en la colección.
 - [ ] **Traducir** un mensaje en español y uno en inglés.
 - [ ] Sonido de mensaje con el chat cerrado. En computadora, también la notificación con la pestaña en segundo plano.
 - [ ] Silenciar a una persona: no suena, pero sale el asterisco.
