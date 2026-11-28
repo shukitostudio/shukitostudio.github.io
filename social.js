@@ -75,8 +75,15 @@
   var botonVolver = $('social-volver');
   var botonMenuChat = botonSala; // el botón que abrió el menú del chat (el de la lista o el del muro)
   var ventanaAdmin = $('social-ventana-admin');
-  var paneles = { chats: panelChats, contactos: panelContactos, admin: panelAdmin };
-  var botonesPanel = { chats: botonChats, contactos: botonContactos };
+  var paneles = {
+    chats: panelChats, estados: $('social-panel-estados'), contactos: panelContactos,
+    ajustes: $('social-panel-ajustes'), admin: panelAdmin
+  };
+  // Pestañas del menú principal, en orden
+  var botonesPanel = {
+    chats: botonChats, estados: $('social-boton-estados'), contactos: botonContactos,
+    ajustes: $('social-boton-ajustes')
+  };
 
   boton.hidden = false;
 
@@ -263,7 +270,7 @@
     document.documentElement.classList.add('social-abierto');
     iphoneAjustar();
     if (sesion && bloqueado) { mostrarCandado(); conectar(); }
-    else if (sesion) { mostrarChat(); conectar(); marcarLeido(); actualizarAsterisco(); }
+    else if (sesion) { mostrarChat(); abrirPanel('chats'); conectar(); actualizarAsterisco(); } // se abre en el menú principal
     else { mostrarEntrar(errorPendiente); errorPendiente = ''; }
   }
   function cerrar(desdeAtras) {
@@ -273,6 +280,10 @@
     cerrarVentanaAvatar();
     cerrarVentanaAdmin();
     cerrarVentanaPin();
+    cerrarVentanaMiPin();
+    cerrarVisorEstado(false);
+    cerrarVentanaEstado();
+    cerrarVentanaMusica();
     cancelarEstado();
     cerrarPanel(false);
     cerrarMenuChat(false);
@@ -305,11 +316,13 @@
     lista.textContent = '';
     caja.value = '';
     ajustarCaja();
+    cerrarBusqueda(false);
     $('social-medio-texto').value = '';
     ['social-lista-chats', 'social-lista-contactos', 'social-admin-usuarios', 'social-admin-chats', 'social-medio-previa',
       'social-muro-avatar', 'social-muro-nombre', 'social-muro-estado', 'social-muro-presencia',
       'social-sala-avatar', 'social-sala-nombre', 'social-sala-detalle', 'social-mi-avatar-img', 'social-mi-nombre',
-      'social-mi-estado', 'social-escribiendo', 'social-estado'].forEach(function (id) {
+      'social-mi-estado', 'social-escribiendo', 'social-estado', 'social-estados-fotos', 'social-estados-novedades',
+      'social-mi-musica', 'social-muro-musica'].forEach(function (id) {
       var el = $(id);
       if (!el) return;
       el.textContent = '';
@@ -370,13 +383,21 @@
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     if (!priv.hidden) cerrarPrivacidad();
+    else if (!visorEstado.hidden) {
+      if (!$('social-ve-lista').hidden) alternarVistos(); else cerrarVisorEstado(true);
+    }
+    else if (!$('social-ventana-estado').hidden) cerrarVentanaEstado();
+    else if (!$('social-ventana-musica').hidden) cerrarVentanaMusica();
     else if (!ventanaAvatar.hidden) cerrarVentanaAvatar();
     else if (!ventanaPin.hidden) cerrarVentanaPin();
+    else if (!ventanaMiPin.hidden) cerrarVentanaMiPin();
     else if (!ventanaAdmin.hidden) cerrarVentanaAdmin();
     else if (!$('social-visor').hidden) cerrarVisor();
     else if (!$('social-ventana-medio').hidden) cerrarVentanaMedio();
     else if (!$('social-grabando').hidden) cancelarGrabacion();
     else if (!menu.hidden) cerrarMenu(true);
+    else if (!menuOrden.hidden) cerrarMenuOrden(true);
+    else if (!cajaBusqueda.hidden && document.activeElement === entradaFiltro) cerrarBusqueda(true);
     else if (!selector.hidden) cerrarSelectorReaccion(true);
     else if (!ventanaGifs.hidden) cerrarGifs(true);
     else if (!ventanaStickers.hidden) cerrarStickers(true);
@@ -539,6 +560,11 @@
     var e = $('social-mi-estado');
     e.textContent = p.estado || t('socialSinEstado');
     e.classList.toggle('vacio', !p.estado);
+    $('social-mi-avatar').classList.toggle('en-linea', !!ws && ws.readyState === 1);
+    var mu = $('social-mi-musica');
+    mu.hidden = !p.musica;
+    mu.textContent = p.musica ? '🎵 ' + p.musica : '';
+    mu.setAttribute('aria-label', t('socialMusicaCambiar') + (p.musica ? ': ' + p.musica : ''));
   }
 
   // Estado: se toca el texto y se escribe ahí mismo.
@@ -568,7 +594,7 @@
       ws.send(JSON.stringify({ t: 'perfil', estado: nuevo }));
       // Se muestra enseguida; el servidor lo confirma con "perfil".
       var p = miPerfil();
-      perfiles[yoMinus()] = { n: p.n, avatar: p.avatar, estado: nuevo };
+      perfiles[yoMinus()] = { n: p.n, avatar: p.avatar, estado: nuevo, musica: p.musica };
       pintarPerfil();
     }
   }
@@ -625,7 +651,7 @@
     if (avatarNuevo && avatarNuevo !== miPerfil().avatar && ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ t: 'perfil', avatar: avatarNuevo }));
       var p = miPerfil();
-      perfiles[yoMinus()] = { n: p.n, avatar: avatarNuevo, estado: p.estado };
+      perfiles[yoMinus()] = { n: p.n, avatar: avatarNuevo, estado: p.estado, musica: p.musica };
       pintarPerfil();
       refrescarAvatares(yoMinus());
     }
@@ -653,9 +679,13 @@
   // Dos vistas: la lista (mi perfil, Chats y Contactos) o la conversación (el muro de la otra persona).
   function ponerVista() {
     raiz.classList.toggle('en-conversacion', !panel && !chat.hidden);
+    raiz.classList.toggle('en-lista', !!panel && !chat.hidden);
+    $('social-nuevo-chat').hidden = panel !== 'chats';
   }
-  function abrirPanel(cual) {
+  function abrirPanel(cual, desdePestana) {
     cerrarMenu(false);
+    cerrarMenuOrden(false);
+    if (cual !== panel) { avisoAjustes(''); avisoEstados(''); }
     cerrarMenuChat(false);
     cerrarSelectorReaccion();
     cerrarMenuAdjuntar(false);
@@ -663,11 +693,9 @@
     panel = cual;
     ponerVista();
     for (var p in paneles) paneles[p].hidden = p !== cual;
-    for (var b in botonesPanel) {
-      botonesPanel[b].setAttribute('aria-expanded', b === cual ? 'true' : 'false');
-      botonesPanel[b].classList.toggle('activo', b === cual);
-    }
+    marcarPestanas(cual);
     refrescarListas();
+    if (desdePestana) return; // el foco se queda en la pestaña
     if (cual === 'admin') {
       $('social-admin-aviso').textContent = '';
       if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'admin_datos' }));
@@ -685,15 +713,40 @@
     cerrarMenu(false);
     cerrarMenuChat(false);
     for (var p in paneles) paneles[p].hidden = true;
-    for (var b in botonesPanel) {
-      botonesPanel[b].setAttribute('aria-expanded', 'false');
-      botonesPanel[b].classList.remove('activo');
-    }
+    marcarPestanas(null);
+    cerrarMenuOrden(false);
     if (devolverFoco) botonVolver.focus();
     marcarLeido();
   }
-  botonChats.addEventListener('click', function () { if (panel === 'chats') cerrarPanel(true); else abrirPanel('chats'); });
-  botonContactos.addEventListener('click', function () { if (panel === 'contactos') cerrarPanel(true); else abrirPanel('contactos'); });
+  // Pestañas: la elegida queda marcada; las flechas pasan de una a otra.
+  function marcarPestanas(cual) {
+    var hay = !!botonesPanel[cual];
+    Object.keys(botonesPanel).forEach(function (k, i) {
+      var b = botonesPanel[k], si = k === cual;
+      b.setAttribute('aria-selected', si ? 'true' : 'false');
+      b.classList.toggle('activo', si);
+      b.tabIndex = si || (!hay && i === 0) ? 0 : -1;
+    });
+  }
+  Object.keys(botonesPanel).forEach(function (k) {
+    botonesPanel[k].addEventListener('click', function () { abrirPanel(k, true); });
+    botonesPanel[k].addEventListener('keydown', function (e) {
+      var claves = Object.keys(botonesPanel), i = claves.indexOf(k), j = -1;
+      if (e.key === 'ArrowRight') j = (i + 1) % claves.length;
+      else if (e.key === 'ArrowLeft') j = (i - 1 + claves.length) % claves.length;
+      else if (e.key === 'Home') j = 0;
+      else if (e.key === 'End') j = claves.length - 1;
+      if (j < 0) return;
+      e.preventDefault();
+      abrirPanel(claves[j], true);
+      botonesPanel[claves[j]].focus();
+    });
+  });
+  marcarPestanas(null);
+  // Botón flotante: empezar un chat nuevo = elegir a alguien en Contactos
+  $('social-nuevo-chat').addEventListener('click', function () { abrirPanel('contactos'); });
+  // Flecha de la barra Social: entra a la conversación abierta
+  $('social-ir-chat').addEventListener('click', function () { abrirSala(salaActual); });
   botonVolver.addEventListener('click', function () { abrirPanel('chats'); });
   ponerVista();
 
@@ -721,6 +774,8 @@
     if (!sesion) return;
     pintarAvatarSala($('social-sala-avatar'), salaActual);
     $('social-sala-nombre').textContent = nombreSala(salaActual);
+    $('social-ir-chat').setAttribute('aria-label', t('socialIrChat', { n: nombreSala(salaActual) }));
+    $('social-ir-chat').title = t('socialIrChat', { n: nombreSala(salaActual) });
     var callado = salaSilenciada(salaActual);
     $('social-sala-silencio').hidden = !callado;
     botonSala.setAttribute('aria-label', t('socialOpcionesChat', { n: nombreSala(salaActual) }) + (callado ? ' (' + t('socialSilenciado') + ')' : ''));
@@ -770,6 +825,7 @@
       var total = Object.keys(perfiles).length;
       var cuantos = usuarios.filter(function (u) { return u.enLinea; }).length;
       foto.classList.add('grupo');
+      $('social-muro-musica').hidden = true;
       estado.textContent = total === 1 ? t('socialMiembros1') : t('socialMiembros', { n: total });
       estado.hidden = false;
       presencia.textContent = ws && ws.readyState === 1 ? t('socialEnLineaCuenta', { n: cuantos }) : '';
@@ -779,6 +835,8 @@
     var otro = otroDe(salaActual), p = perfilDe(otro), conectado = enLinea(otro), visto = vistoDe(otro);
     estado.textContent = (p && p.estado) || '';
     estado.hidden = !(p && p.estado);
+    $('social-muro-musica').textContent = p && p.musica ? '🎵 ' + p.musica : '';
+    $('social-muro-musica').hidden = !(p && p.musica);
     foto.classList.toggle('en-linea', conectado);
     presencia.classList.toggle('en-linea', conectado);
     presencia.textContent = conectado ? t('socialEnLineaAhora') : visto ? textoUltimaVez(visto) : t('socialDesconectado');
@@ -800,6 +858,7 @@
     var total = sesion && !bloqueado ? totalNoLeidos() : 0;
     var hay = total > 0;
     $('social-asterisco-chats').hidden = !hay;
+    $('social-asterisco-chats').textContent = total > 99 ? '99+' : String(total);
     $('social-asterisco-portada').hidden = !hay;
     botonChats.setAttribute('aria-label', t('socialChats') + (hay ? ' — ' + t('socialHayNoLeidos') : ''));
     boton.setAttribute('aria-label', t('socialBoton') + (hay ? ' — ' + t('socialHayNoLeidos') : ''));
@@ -812,24 +871,22 @@
     return c && c.mensajes.length ? c.mensajes[c.mensajes.length - 1] : null;
   }
 
+  // Tarjeta de la lista: foto redonda (anillo verde si está en línea), nombre, hora, último mensaje con ✓✓,
+  // y a la derecha el número de no leídos o el pin del chat fijado.
   function filaLista(avatarSala, avatarNombre, titulo, linea2, extra) {
+    extra = extra || {};
     var li = document.createElement('li');
     var b = document.createElement('button');
     b.type = 'button';
-    b.className = 'social-item';
+    b.className = 'social-item' + (extra.cuantos ? ' con-no-leidos' : '');
     var av = document.createElement('span');
     av.className = 'social-avatar';
     av.setAttribute('aria-hidden', 'true');
     if (avatarSala) pintarAvatarSala(av, avatarSala);
     else { var p = perfilDe(avatarNombre); pintarAvatar(av, p && p.avatar, p ? p.n : avatarNombre); }
     var cajaAv = document.createElement('span');
-    cajaAv.className = 'social-item-avatar';
+    cajaAv.className = 'social-item-avatar' + (extra.anillo === true ? ' en-linea' : extra.anillo === false ? ' con-anillo' : '');
     cajaAv.appendChild(av);
-    if (extra && extra.punto !== undefined) {
-      var punto = document.createElement('span');
-      punto.className = 'social-punto' + (extra.punto ? ' si' : '');
-      cajaAv.appendChild(punto);
-    }
     b.appendChild(cajaAv);
     var textos = document.createElement('span');
     textos.className = 'social-item-textos';
@@ -838,14 +895,14 @@
     var nom = document.createElement('strong');
     nom.textContent = titulo;
     arriba.appendChild(nom);
-    if (extra && extra.silencio) {
+    if (extra.silencio) {
       var sil = document.createElement('span');
       sil.className = 'social-silencio';
       sil.setAttribute('aria-hidden', 'true');
       sil.textContent = '🔕';
       arriba.appendChild(sil);
     }
-    if (extra && extra.hora) {
+    if (extra.hora) {
       var h = document.createElement('time');
       h.textContent = extra.hora;
       arriba.appendChild(h);
@@ -853,53 +910,158 @@
     textos.appendChild(arriba);
     var abajo = document.createElement('span');
     abajo.className = 'social-item-abajo';
-    abajo.textContent = linea2;
+    if (extra.marca) {
+      var mc = document.createElement('span');
+      mc.className = 'social-item-marca' + (extra.marca === 'leido' ? ' leido' : '');
+      mc.setAttribute('aria-hidden', 'true');
+      mc.textContent = extra.marca === 'leido' ? '✓✓' : '✓';
+      abajo.appendChild(mc);
+    }
+    var tx = document.createElement('span');
+    tx.className = 'social-item-texto';
+    tx.textContent = linea2;
+    abajo.appendChild(tx);
+    if (extra.cuantos) {
+      var n = document.createElement('span');
+      n.className = 'social-item-n';
+      n.setAttribute('aria-hidden', 'true');
+      n.textContent = extra.cuantos > 99 ? '99+' : String(extra.cuantos);
+      abajo.appendChild(n);
+    } else if (extra.fijado) {
+      var pin = document.createElement('span');
+      pin.className = 'social-item-fijado';
+      pin.title = t('socialFijado');
+      pin.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 3.5l6 6-2.3.8-3.4 3.4.4 4.3-1.4 1.4-4.2-4.2L5 19.8l-.8-.8 4.6-4.6L4.6 10.2 6 8.8l4.3.4 3.4-3.4z" fill="currentColor"/></svg>';
+      abajo.appendChild(pin);
+    }
     textos.appendChild(abajo);
     b.appendChild(textos);
-    if (extra && extra.asterisco) {
-      var a = document.createElement('span');
-      a.className = 'social-asterisco';
-      a.setAttribute('aria-hidden', 'true');
-      a.textContent = '*';
-      b.appendChild(a);
-    }
-    if (extra && extra.etiqueta) b.setAttribute('aria-label', extra.etiqueta);
-    if (extra && extra.actual) b.setAttribute('aria-current', 'true');
+    if (extra.etiqueta) b.setAttribute('aria-label', extra.etiqueta);
+    if (extra.actual) b.setAttribute('aria-current', 'true');
     li.appendChild(b);
     return { li: li, boton: b };
   }
+
+  // Buscar y ordenar la lista de chats (el orden se recuerda en este teléfono)
+  var ORDENES = ['recientes', 'noleidos', 'nombre'];
+  var ordenChats = ORDENES.indexOf(leer('shukito-social-orden')) >= 0 ? leer('shukito-social-orden') : 'recientes';
+  var filtroChats = '';
+  function normal(x) { return String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
 
   function pintarListaChats() {
     var ul = $('social-lista-chats');
     ul.textContent = '';
     datosSala(GENERAL);
-    var salas = Object.keys(chats).filter(function (s) {
+    var datos = Object.keys(chats).filter(function (s) {
       return s === GENERAL || s === salaActual || chats[s].mensajes.length > 0;
-    });
-    salas.sort(function (a, b) {
-      var ua = ultimo(a), ub = ultimo(b);
-      return ((ub ? ub.ts : 0) - (ua ? ua.ts : 0)) || (a === GENERAL ? -1 : b === GENERAL ? 1 : 0);
-    });
-    salas.forEach(function (sala) {
+    }).map(function (sala) {
       var u = ultimo(sala), linea = t('socialSinMensajes');
       if (u) {
         var deMi = minus(u.nombre) === yoMinus();
         linea = deMi ? t('socialTuPrefijo') + resumen(u) : sala === GENERAL ? u.nombre + ': ' + resumen(u) : resumen(u);
       }
-      var cuantos = noLeidos(sala);
-      var titulo = nombreSala(sala);
-      var f = filaLista(sala, null, titulo, linea, {
+      return { sala: sala, u: u, linea: linea, titulo: nombreSala(sala), cuantos: noLeidos(sala) };
+    });
+    var q = normal(filtroChats.trim());
+    if (q) datos = datos.filter(function (d) { return normal(d.titulo).indexOf(q) >= 0 || normal(d.linea).indexOf(q) >= 0; });
+    // El chat general va siempre primero (fijado).
+    datos.sort(function (a, b) {
+      if (a.sala === GENERAL) return -1;
+      if (b.sala === GENERAL) return 1;
+      var ta = a.u ? a.u.ts : 0, tb = b.u ? b.u.ts : 0;
+      if (ordenChats === 'noleidos') return ((b.cuantos > 0) - (a.cuantos > 0)) || (tb - ta);
+      if (ordenChats === 'nombre') return a.titulo.localeCompare(b.titulo, idioma() === 'en' ? 'en' : 'es');
+      return tb - ta;
+    });
+    if (!datos.length) {
+      var v = document.createElement('li');
+      v.className = 'social-lista-vacia';
+      v.textContent = t('socialSinResultados', { q: filtroChats.trim() });
+      ul.appendChild(v);
+      return;
+    }
+    datos.forEach(function (d) {
+      var u = d.u, marca = null;
+      if (u && minus(u.nombre) === yoMinus()) {
+        var otros = d.sala === GENERAL ? Object.keys(perfiles).filter(function (n) { return n !== yoMinus(); }) : [otroDe(d.sala)];
+        marca = otros.length > 0 && otros.every(function (n) { return leidoPor(d.sala, n) >= u.id; }) ? 'leido' : 'enviado';
+      }
+      var otro = otroDe(d.sala);
+      var conectado = otro ? enLinea(otro) : undefined;
+      var f = filaLista(d.sala, null, d.titulo, d.linea, {
         hora: u ? hora(u.ts) : '',
-        asterisco: cuantos > 0,
-        silencio: salaSilenciada(sala),
-        actual: sala === salaActual,
-        etiqueta: titulo + (salaSilenciada(sala) ? ' (' + t('socialSilenciado') + ')' : '')
-          + (cuantos ? ', ' + t('socialNoLeidosN', { n: cuantos }) : '') + '. ' + linea
+        cuantos: d.cuantos,
+        marca: marca,
+        fijado: d.sala === GENERAL,
+        anillo: conectado,
+        silencio: salaSilenciada(d.sala),
+        actual: d.sala === salaActual,
+        etiqueta: d.titulo + (d.sala === GENERAL ? ' (' + t('socialFijado') + ')' : '')
+          + (conectado ? ', ' + t('socialEnLineaAhora') : '')
+          + (salaSilenciada(d.sala) ? ' (' + t('socialSilenciado') + ')' : '')
+          + (d.cuantos ? ', ' + t('socialNoLeidosN', { n: d.cuantos }) : '') + '. ' + d.linea
+          + (marca ? ' (' + t(marca === 'leido' ? (d.sala === GENERAL ? 'socialLeido' : 'socialLeidoPrivado') : 'socialEnviado') + ')' : '')
       });
-      f.boton.addEventListener('click', function () { abrirSala(sala); });
+      f.boton.addEventListener('click', function () { abrirSala(d.sala); });
       ul.appendChild(f.li);
     });
   }
+
+  var botonBuscar = $('social-chats-buscar'), cajaBusqueda = $('social-chats-busqueda'), entradaFiltro = $('social-chats-filtro');
+  function cerrarBusqueda(devolverFoco) {
+    if (cajaBusqueda.hidden) return;
+    cajaBusqueda.hidden = true;
+    botonBuscar.setAttribute('aria-expanded', 'false');
+    entradaFiltro.value = '';
+    filtroChats = '';
+    pintarListaChats();
+    if (devolverFoco) botonBuscar.focus();
+  }
+  botonBuscar.addEventListener('click', function () {
+    if (!cajaBusqueda.hidden) { cerrarBusqueda(true); return; }
+    cajaBusqueda.hidden = false;
+    botonBuscar.setAttribute('aria-expanded', 'true');
+    entradaFiltro.focus();
+  });
+  entradaFiltro.addEventListener('input', function () { filtroChats = entradaFiltro.value; pintarListaChats(); });
+
+  var menuOrden = $('social-menu-orden'), botonOrden = $('social-chats-ordenar');
+  function pintarOrden() {
+    Array.prototype.forEach.call(menuOrden.querySelectorAll('[data-orden]'), function (b) {
+      b.setAttribute('aria-checked', b.getAttribute('data-orden') === ordenChats ? 'true' : 'false');
+    });
+  }
+  function cerrarMenuOrden(devolverFoco) {
+    if (menuOrden.hidden) return;
+    menuOrden.hidden = true;
+    botonOrden.setAttribute('aria-expanded', 'false');
+    if (devolverFoco) botonOrden.focus();
+  }
+  botonOrden.addEventListener('click', function () {
+    if (!menuOrden.hidden) { cerrarMenuOrden(true); return; }
+    pintarOrden();
+    menuOrden.hidden = false;
+    botonOrden.setAttribute('aria-expanded', 'true');
+    (menuOrden.querySelector('[aria-checked="true"]') || menuOrden.querySelector('button')).focus();
+  });
+  menuOrden.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-orden]');
+    if (!b) return;
+    ordenChats = b.getAttribute('data-orden');
+    guardar('shukito-social-orden', ordenChats);
+    cerrarMenuOrden(true);
+    pintarListaChats();
+  });
+  menuOrden.addEventListener('keydown', function (e) {
+    var items = Array.prototype.slice.call(menuOrden.querySelectorAll('button'));
+    var i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Tab') cerrarMenuOrden(false);
+  });
+  document.addEventListener('click', function (e) {
+    if (!menuOrden.hidden && !menuOrden.contains(e.target) && !botonOrden.contains(e.target)) cerrarMenuOrden(false);
+  });
 
   function pintarListaContactos() {
     var ul = $('social-lista-contactos');
@@ -918,7 +1080,7 @@
     otros.forEach(function (o) {
       var linea = o.p.estado || (o.conectado ? t('socialEnLineaAhora') : t('socialDesconectado'));
       var f = filaLista(null, o.minus, o.p.n, linea, {
-        punto: o.conectado,
+        anillo: o.conectado,
         silencio: !!silencios.persona[o.minus],
         etiqueta: t('socialHablarCon', { n: o.p.n }) + ' (' + (o.conectado ? t('socialEnLineaAhora') : t('socialDesconectado')) + ')'
           + (o.p.estado ? '. ' + o.p.estado : '')
@@ -929,6 +1091,8 @@
   }
 
   function refrescarListas() {
+    if (panel === 'ajustes') pintarAjustes();
+    if (panel === 'estados') pintarEstados();
     if (panel === 'chats') pintarListaChats();
     else if (panel === 'contactos') pintarListaContactos();
     else if (panel === 'admin') pintarPanelAdmin();
@@ -940,6 +1104,7 @@
     $('social-op-admin').textContent = t(esAdmin ? 'socialAdminPanel' : 'socialAdminEntrarMenu');
     $('social-op-admin').setAttribute('data-i', esAdmin ? 'socialAdminPanel' : 'socialAdminEntrarMenu');
     $('social-op-admin-salir').hidden = !esAdmin;
+    pintarAjustes();
     if (!esAdmin && panel === 'admin') cerrarPanel(false);
   }
 
@@ -1210,6 +1375,7 @@
     n.hidden = !puedeNotificar();
     var activas = avisos.notif && puedeNotificar() && Notification.permission === 'granted';
     n.setAttribute('aria-checked', activas ? 'true' : 'false');
+    pintarAjustes();
   }
   $('social-op-sonido').addEventListener('click', function () {
     avisos.sonido = !avisos.sonido;
@@ -1236,6 +1402,461 @@
     });
   });
   pintarAjustesAvisos();
+
+  /* ---------- Estados (24 horas): fotos como WhatsApp y novedades como BBM ---------- */
+  var ESTADO_MS = 24 * 3600 * 1000;
+  var estados = [];             // {id, n, tp: 'foto'|'avatar'|'estado'|'musica', x, av, archivo, ancho, alto, ts, visto, vistos}
+  var visorEstado = $('social-visor-estado');
+  var visorLista = [], visorI = 0, visorTimer = null, visorInicio = 0, visorPausa = 0, visorDesde = null;
+  var ESTADO_SEG = 6;           // segundos que se ve cada foto
+
+  function avisoEstados(texto, esError) {
+    var a = $('social-estados-aviso');
+    a.textContent = texto || '';
+    a.classList.toggle('es-error', !!esError);
+  }
+  function estadosVigentes() {
+    var corte = Date.now() - ESTADO_MS;
+    return estados.filter(function (e) { return e.ts > corte && perfilDe(minus(e.n)); });
+  }
+  function fotosDe(nombreMinus) {
+    return estadosVigentes().filter(function (e) { return e.tp === 'foto' && minus(e.n) === nombreMinus; })
+      .sort(function (a, b) { return a.id - b.id; });
+  }
+  // Punto azul en la pestaña Estados si hay fotos de otros sin ver.
+  function pintarPuntoEstados() {
+    var hay = estadosVigentes().some(function (e) { return e.tp === 'foto' && minus(e.n) !== yoMinus() && !e.visto; });
+    $('social-estados-punto').hidden = !hay;
+    botonesPanel.estados.setAttribute('aria-label', t('socialEstados') + (hay ? ' — ' + t('socialEstadosHayNuevos') : ''));
+  }
+  function pintarEstados() {
+    pintarPuntoEstados();
+    var vig = estadosVigentes();
+    // Fila de círculos: yo primero, luego quien tenga fotos (sin ver primero).
+    var fila = $('social-estados-fotos');
+    fila.textContent = '';
+    var personas = {};
+    vig.forEach(function (e) { if (e.tp === 'foto' && minus(e.n) !== yoMinus()) (personas[minus(e.n)] = personas[minus(e.n)] || []).push(e); });
+    var orden = Object.keys(personas).map(function (k) {
+      var l = personas[k];
+      return { k: k, sinVer: l.filter(function (e) { return !e.visto; }).length, ultimo: Math.max.apply(null, l.map(function (e) { return e.ts; })) };
+    }).sort(function (a, b) { return ((b.sinVer > 0) - (a.sinVer > 0)) || (b.ultimo - a.ultimo); });
+    var mias = fotosDe(yoMinus());
+    fila.appendChild(circuloEstado(yoMinus(), t('socialEstadosMio'), mias.length, 0, true));
+    orden.forEach(function (o) {
+      var p = perfilDe(o.k);
+      fila.appendChild(circuloEstado(o.k, p ? p.n : o.k, personas[o.k].length, o.sinVer, false));
+    });
+    // Novedades: todo lo de las últimas 24 horas, lo más nuevo arriba.
+    var ul = $('social-estados-novedades');
+    ul.textContent = '';
+    var nov = vig.slice().sort(function (a, b) { return b.ts - a.ts; });
+    if (!nov.length) {
+      var v = document.createElement('li');
+      v.className = 'social-lista-vacia';
+      v.textContent = t('socialNovVacio');
+      ul.appendChild(v);
+    }
+    nov.forEach(function (e) {
+      var nm = minus(e.n), p = perfilDe(nm), mio = nm === yoMinus();
+      var linea = e.tp === 'foto' ? t('socialNovFoto') + (e.x ? ': ' + e.x : '')
+        : e.tp === 'avatar' ? t('socialNovAvatar')
+        : e.tp === 'estado' ? t('socialNovEstado', { x: e.x || '' })
+        : t('socialNovMusica', { x: e.x || '' });
+      var f = filaLista(null, nm, p ? p.n : e.n, linea, {
+        hora: hora(e.ts),
+        anillo: mio ? undefined : enLinea(nm),
+        etiqueta: (p ? p.n : e.n) + ', ' + hora(e.ts) + '. ' + linea
+      });
+      if (e.tp === 'avatar' && e.av) {
+        var mini = document.createElement('span');
+        mini.className = 'social-avatar social-nov-mini';
+        mini.setAttribute('aria-hidden', 'true');
+        pintarAvatar(mini, e.av, e.n);
+        f.boton.appendChild(mini);
+      }
+      if (e.tp === 'foto' && e.archivo) {
+        var fm = document.createElement('span');
+        fm.className = 'social-nov-mini social-nov-foto';
+        fm.setAttribute('aria-hidden', 'true');
+        cargarArchivo(e.archivo).then(function (u) {
+          var im = document.createElement('img');
+          im.alt = '';
+          im.src = u;
+          fm.appendChild(im);
+        }, function () { /* sin miniatura */ });
+        f.boton.appendChild(fm);
+      }
+      if (e.tp === 'foto') f.boton.addEventListener('click', function () { abrirVisorEstados(nm, e.id, f.boton); });
+      else if (!mio) f.boton.addEventListener('click', function () { abrirSala(salaCon(e.n)); });
+      else f.boton.classList.add('sin-accion');
+      ul.appendChild(f.li);
+    });
+  }
+  function circuloEstado(nombreMinus, titulo, total, sinVer, mio) {
+    var li = document.createElement('li');
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'social-estado-persona';
+    var anillo = document.createElement('span');
+    anillo.className = 'social-estado-anillo' + (mio ? (total ? ' mio' : ' vacio') : sinVer ? ' sin-ver' : ' visto');
+    var av = document.createElement('span');
+    av.className = 'social-avatar';
+    av.setAttribute('aria-hidden', 'true');
+    var p = perfilDe(nombreMinus);
+    pintarAvatar(av, p && p.avatar, p ? p.n : nombreMinus);
+    anillo.appendChild(av);
+    if (mio && !total) {
+      var mas = document.createElement('span');
+      mas.className = 'social-estado-mas';
+      mas.setAttribute('aria-hidden', 'true');
+      mas.textContent = '+';
+      anillo.appendChild(mas);
+    }
+    b.appendChild(anillo);
+    var nom = document.createElement('span');
+    nom.className = 'social-estado-nombre';
+    nom.textContent = titulo;
+    b.appendChild(nom);
+    if (mio && !total) {
+      b.setAttribute('aria-label', t('socialEstadoNuevo'));
+      b.addEventListener('click', elegirFotoEstado);
+    } else {
+      b.setAttribute('aria-label', t('socialEstadoVerDe', { n: mio ? t('socialEstadosMio') : titulo })
+        + (sinVer ? ' (' + t('socialEstadoSinVer', { n: sinVer }) + ')' : ''));
+      b.addEventListener('click', function () { abrirVisorEstados(nombreMinus, null, b); });
+    }
+    li.appendChild(b);
+    return li;
+  }
+
+  // ----- Visor de fotos de estado -----
+  function abrirVisorEstados(nombreMinus, idInicial, desde) {
+    visorLista = fotosDe(nombreMinus);
+    if (!visorLista.length) return;
+    visorDesde = desde || null;
+    visorI = 0;
+    if (idInicial) visorLista.forEach(function (e, i) { if (e.id === idInicial) visorI = i; });
+    else visorLista.some(function (e, i) { if (!e.visto && nombreMinus !== yoMinus()) { visorI = i; return true; } return false; });
+    visorEstado.hidden = false;
+    mostrarEstadoActual();
+    $('social-ve-cerrar').focus();
+  }
+  function cerrarVisorEstado(devolverFoco) {
+    if (visorEstado.hidden) return;
+    cancelAnimationFrame(visorTimer);
+    visorEstado.hidden = true;
+    $('social-ve-img').removeAttribute('src');
+    $('social-ve-lista').hidden = true;
+    if (panel === 'estados') pintarEstados();
+    if (devolverFoco && visorDesde && visorDesde.isConnected) visorDesde.focus();
+    else if (devolverFoco && abierto) botonesPanel.estados.focus();
+  }
+  function mostrarEstadoActual() {
+    var e = visorLista[visorI];
+    if (!e) { cerrarVisorEstado(true); return; }
+    var mio = minus(e.n) === yoMinus(), p = perfilDe(minus(e.n));
+    pintarAvatar($('social-ve-avatar'), p && p.avatar, e.n);
+    $('social-ve-nombre').textContent = mio ? t('socialEstadosMio') : (p ? p.n : e.n);
+    $('social-ve-hora').textContent = hora(e.ts);
+    var img = $('social-ve-img');
+    img.removeAttribute('src');
+    img.alt = t('socialEstadoFotoDe', { n: p ? p.n : e.n }) + (e.x ? ': ' + e.x : '');
+    cargarArchivo(e.archivo).then(function (u) { if (visorLista[visorI] === e) img.src = u; }, function () { img.alt = t('socialErrCargar'); });
+    $('social-ve-texto').textContent = e.x || '';
+    $('social-ve-texto').hidden = !e.x;
+    $('social-ve-borrar').hidden = !mio && !esAdmin;
+    $('social-ve-vistos').hidden = !mio;
+    $('social-ve-lista').hidden = true;
+    $('social-ve-vistos').setAttribute('aria-expanded', 'false');
+    if (mio) pintarVistos();
+    // Barras de arriba: una por foto
+    var barras = $('social-ve-barras');
+    barras.textContent = '';
+    visorLista.forEach(function (x, i) {
+      var b = document.createElement('span');
+      b.className = 'social-ve-barra';
+      var r = document.createElement('span');
+      r.style.width = i < visorI ? '100%' : '0%';
+      b.appendChild(r);
+      barras.appendChild(b);
+    });
+    // Visto (solo las de otros, una vez)
+    if (!mio && !e.visto) {
+      e.visto = true;
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'estado_visto', id: e.id }));
+      pintarPuntoEstados();
+    }
+    visorInicio = Date.now();
+    visorPausa = 0;
+    cancelAnimationFrame(visorTimer);
+    avanzarBarra();
+  }
+  function avanzarBarra() {
+    var r = $('social-ve-barras').children[visorI];
+    if (!r) return;
+    if (visorPausa) { visorTimer = requestAnimationFrame(avanzarBarra); return; }
+    var p = Math.min(1, (Date.now() - visorInicio) / (ESTADO_SEG * 1000));
+    r.firstChild.style.width = (p * 100) + '%';
+    if (p >= 1) { siguienteEstado(); return; }
+    visorTimer = requestAnimationFrame(avanzarBarra);
+  }
+  function siguienteEstado() {
+    if (visorI < visorLista.length - 1) { visorI++; mostrarEstadoActual(); }
+    else cerrarVisorEstado(true);
+  }
+  function anteriorEstado() {
+    if (visorI > 0) visorI--;
+    mostrarEstadoActual();
+  }
+  function quitarDelVisor(id) {
+    if (visorEstado.hidden) return;
+    var i = -1;
+    visorLista.forEach(function (e, j) { if (e.id === id) i = j; });
+    if (i < 0) return;
+    visorLista.splice(i, 1);
+    if (!visorLista.length) { cerrarVisorEstado(true); return; }
+    if (visorI >= visorLista.length) visorI = visorLista.length - 1;
+    mostrarEstadoActual();
+  }
+  function pintarVistos() {
+    var e = visorLista[visorI];
+    if (!e) return;
+    var v = e.vistos || [];
+    $('social-ve-vistos').textContent = v.length ? t('socialEstadoVistos', { n: v.length }) : t('socialEstadoVistos0');
+    var ul = $('social-ve-lista');
+    ul.textContent = '';
+    v.forEach(function (x) {
+      var li = document.createElement('li');
+      var av = document.createElement('span');
+      av.className = 'social-avatar mini';
+      av.setAttribute('aria-hidden', 'true');
+      var p = perfilDe(minus(x.n));
+      pintarAvatar(av, p && p.avatar, x.n);
+      var n = document.createElement('strong');
+      n.textContent = p ? p.n : x.n;
+      var h = document.createElement('time');
+      h.textContent = hora(x.ts);
+      li.appendChild(av); li.appendChild(n); li.appendChild(h);
+      ul.appendChild(li);
+    });
+  }
+  function alternarVistos() {
+    var ul = $('social-ve-lista'), abrir = ul.hidden && (visorLista[visorI].vistos || []).length > 0;
+    ul.hidden = !abrir;
+    $('social-ve-vistos').setAttribute('aria-expanded', abrir ? 'true' : 'false');
+    // Mientras se mira la lista, la foto no avanza.
+    if (abrir) visorPausa = Date.now();
+    else if (visorPausa) { visorInicio += Date.now() - visorPausa; visorPausa = 0; }
+  }
+  $('social-ve-cerrar').addEventListener('click', function () { cerrarVisorEstado(true); });
+  $('social-ve-despues').addEventListener('click', siguienteEstado);
+  $('social-ve-antes').addEventListener('click', anteriorEstado);
+  $('social-ve-vistos').addEventListener('click', alternarVistos);
+  $('social-ve-descargar').addEventListener('click', function () {
+    var e = visorLista[visorI];
+    if (!e) return;
+    cargarArchivo(e.archivo).then(function (u) { descargar(u, 'estado', e.ts); }, function () { /* nada */ });
+  });
+  $('social-ve-borrar').addEventListener('click', function () {
+    var e = visorLista[visorI];
+    if (!e) return;
+    visorPausa = visorPausa || Date.now();
+    if (!window.confirm(t('socialEstadoBorrarConfirmar'))) { visorInicio += Date.now() - visorPausa; visorPausa = 0; return; }
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'estado_borrar', id: e.id }));
+  });
+  visorEstado.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight') { e.preventDefault(); siguienteEstado(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); anteriorEstado(); }
+  });
+
+  // ----- Publicar una foto de estado -----
+  var fotoEstado = null;        // {blob, mime, ancho, alto, url}
+  function elegirFotoEstado() {
+    if (!ws || ws.readyState !== 1) { avisoEstados(t('socialErrRed'), true); return; }
+    $('social-estado-archivo').value = '';
+    $('social-estado-archivo').click();
+  }
+  $('social-estado-camara').addEventListener('click', elegirFotoEstado);
+  $('social-estado-archivo').addEventListener('change', function () {
+    var archivo = this.files && this.files[0];
+    this.value = '';
+    if (!archivo) return;
+    avisoEstados('');
+    window.socialMedios.reducirFoto(archivo).then(function (res) {
+      if (fotoEstado && fotoEstado.url) URL.revokeObjectURL(fotoEstado.url);
+      fotoEstado = res;
+      fotoEstado.url = URL.createObjectURL(res.blob);
+      var previa = $('social-estado-previa');
+      previa.textContent = '';
+      var img = document.createElement('img');
+      img.alt = '';
+      img.src = fotoEstado.url;
+      previa.appendChild(img);
+      $('social-estado-foto-texto').value = '';
+      $('social-estado-foto-estado').textContent = '';
+      $('social-estado-foto-error').textContent = '';
+      $('social-estado-foto-publicar').disabled = false;
+      $('social-ventana-estado').hidden = false;
+      $('social-estado-foto-texto').focus();
+    }, function (motivo) { avisoEstados(errorMedio(motivo), true); });
+  });
+  function cerrarVentanaEstado() {
+    if ($('social-ventana-estado').hidden) return;
+    if (subida && $('social-estado-foto-publicar').disabled) subida.abort();
+    $('social-ventana-estado').hidden = true;
+    $('social-estado-previa').textContent = '';
+    if (fotoEstado && fotoEstado.url) URL.revokeObjectURL(fotoEstado.url);
+    fotoEstado = null;
+    if (abierto && panel === 'estados') $('social-estado-camara').focus();
+  }
+  $('social-estado-foto-cancelar').addEventListener('click', cerrarVentanaEstado);
+  $('social-ventana-estado').addEventListener('click', function (e) { if (e.target === this) cerrarVentanaEstado(); });
+  $('social-form-estado-foto').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!fotoEstado) return;
+    if (!ws || ws.readyState !== 1) { $('social-estado-foto-error').textContent = t('socialErrRed'); return; }
+    var texto = $('social-estado-foto-texto').value.trim();
+    $('social-estado-foto-publicar').disabled = true;
+    $('social-estado-foto-error').textContent = '';
+    var aviso = $('social-estado-foto-estado');
+    aviso.textContent = t('socialEstadoPublicando', { p: 0 });
+    subirArchivo({ blob: fotoEstado.blob, mime: fotoEstado.mime, tipo: 'foto', ancho: fotoEstado.ancho, alto: fotoEstado.alto, dur: 0 }, function (p) {
+      aviso.textContent = t('socialEstadoPublicando', { p: Math.round(p * 100) });
+    }).then(function (clave) {
+      if (!ws || ws.readyState !== 1) throw 'red';
+      ws.send(JSON.stringify({ t: 'estado_foto', archivo: clave, texto: texto }));
+    }).catch(function (motivo) {
+      if (motivo === 'cancelado') return;
+      $('social-estado-foto-publicar').disabled = false;
+      aviso.textContent = '';
+      $('social-estado-foto-error').textContent = errorMedio(motivo);
+    });
+  });
+
+  // ----- Lo que estoy escuchando (como la nota musical de BBM) -----
+  function abrirVentanaMusica() {
+    if (!ws || ws.readyState !== 1) { avisoEstados(t('socialErrRed'), true); return; }
+    cerrarMenu(false);
+    $('social-musica-caja').value = miPerfil().musica || '';
+    $('social-musica-error').textContent = '';
+    $('social-musica-quitar').hidden = !miPerfil().musica;
+    $('social-ventana-musica').hidden = false;
+    $('social-musica-caja').focus();
+  }
+  function cerrarVentanaMusica() {
+    if ($('social-ventana-musica').hidden) return;
+    $('social-ventana-musica').hidden = true;
+    if (abierto && panel === 'estados') $('social-musica-boton').focus();
+    else if (abierto && panel === 'ajustes') $('social-aj-musica').focus();
+  }
+  function guardarMusica(texto) {
+    if (!ws || ws.readyState !== 1) { $('social-musica-error').textContent = t('socialErrRed'); return; }
+    if (Array.from(texto).length > 80) { $('social-musica-error').textContent = t('socialErrMusicaLarga'); return; }
+    ws.send(JSON.stringify({ t: 'musica', texto: texto }));
+    var p = miPerfil();
+    perfiles[yoMinus()] = { n: p.n, avatar: p.avatar, estado: p.estado, musica: texto };
+    pintarPerfil();
+    cerrarVentanaMusica();
+  }
+  $('social-musica-boton').addEventListener('click', abrirVentanaMusica);
+  $('social-mi-musica').addEventListener('click', abrirVentanaMusica);
+  $('social-musica-cancelar').addEventListener('click', cerrarVentanaMusica);
+  $('social-musica-quitar').addEventListener('click', function () { guardarMusica(''); });
+  $('social-ventana-musica').addEventListener('click', function (e) { if (e.target === this) cerrarVentanaMusica(); });
+  $('social-form-musica').addEventListener('submit', function (e) {
+    e.preventDefault();
+    guardarMusica($('social-musica-caja').value.replace(/\s+/g, ' ').trim());
+  });
+
+  /* ---------- Ajustes ---------- */
+  function avisoAjustes(texto, esError) {
+    var a = $('social-aj-aviso');
+    a.textContent = texto || '';
+    a.classList.toggle('es-error', !!esError);
+  }
+  function pintarAjustes() {
+    $('social-aj-sonido').setAttribute('aria-checked', avisos.sonido ? 'true' : 'false');
+    var n = $('social-aj-notif');
+    n.hidden = !puedeNotificar();
+    n.setAttribute('aria-checked', $('social-op-notif').getAttribute('aria-checked'));
+    $('social-aj-admin-texto').textContent = t(esAdmin ? 'socialAdminPanel' : 'socialAdminEntrarMenu');
+    var id = idioma() === 'en' ? 'en' : 'es';
+    var tema = document.documentElement.getAttribute('data-tema') === 'dia' ? 'dia' : 'noche';
+    [['data-aj-idioma', id], ['data-aj-tema', tema]].forEach(function (par) {
+      Array.prototype.forEach.call(document.querySelectorAll('[' + par[0] + ']'), function (b) {
+        var si = b.getAttribute(par[0]) === par[1];
+        b.setAttribute('aria-checked', si ? 'true' : 'false');
+        b.tabIndex = si ? 0 : -1;
+      });
+    });
+  }
+  $('social-aj-avatar').addEventListener('click', abrirVentanaAvatar);
+  $('social-aj-estado').addEventListener('click', editarEstado);
+  $('social-aj-musica').addEventListener('click', abrirVentanaMusica);
+  $('social-aj-sonido').addEventListener('click', function () { $('social-op-sonido').click(); });
+  $('social-aj-notif').addEventListener('click', function () { $('social-op-notif').click(); });
+  $('social-aj-pin').addEventListener('click', abrirVentanaMiPin);
+  $('social-aj-bloquear').addEventListener('click', salidaEmergencia);
+  $('social-aj-admin').addEventListener('click', function () { $('social-op-admin').click(); });
+  $('social-aj-salir').addEventListener('click', function () { $('social-op-salir').click(); });
+  $('social-aj-borrar').addEventListener('click', function () { $('social-op-borrar').click(); });
+  function elegirAjuste(b) {
+    if (b.hasAttribute('data-aj-idioma')) {
+      var boton = document.querySelector('[data-lang="' + b.getAttribute('data-aj-idioma') + '"]');
+      if (boton) boton.click();
+    } else if ((document.documentElement.getAttribute('data-tema') === 'dia' ? 'dia' : 'noche') !== b.getAttribute('data-aj-tema')) {
+      $('btn-tema').click();
+    }
+    pintarAjustes();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-aj-idioma], [data-aj-tema]'), function (b) {
+    b.addEventListener('click', function () { elegirAjuste(b); });
+    b.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+      var grupo = Array.prototype.slice.call(b.parentNode.querySelectorAll('[role="radio"]'));
+      var otro = grupo[(grupo.indexOf(b) + 1) % grupo.length];
+      elegirAjuste(otro);
+      otro.focus();
+    });
+  });
+  // El tema también se puede cambiar desde la página: los Ajustes lo siguen.
+  if (window.MutationObserver) new MutationObserver(pintarAjustes).observe(document.documentElement, { attributes: true, attributeFilter: ['data-tema'] });
+
+  // Cambiar mi PIN (hace falta el actual)
+  var ventanaMiPin = $('social-ventana-mi-pin');
+  function abrirVentanaMiPin() {
+    if (!ws || ws.readyState !== 1) { avisoAjustes(t('socialErrRed'), true); return; }
+    ['actual', 'nuevo', 'repetir'].forEach(function (k) { $('social-mi-pin-' + k).value = ''; });
+    $('social-mi-pin-error').textContent = '';
+    $('social-mi-pin-guardar').disabled = false;
+    ventanaMiPin.hidden = false;
+    $('social-mi-pin-actual').focus();
+  }
+  function cerrarVentanaMiPin() {
+    if (ventanaMiPin.hidden) return;
+    ventanaMiPin.hidden = true;
+    ['actual', 'nuevo', 'repetir'].forEach(function (k) { $('social-mi-pin-' + k).value = ''; });
+    if (abierto && panel === 'ajustes') $('social-aj-pin').focus();
+  }
+  ['actual', 'nuevo', 'repetir'].forEach(function (k) {
+    $('social-mi-pin-' + k).addEventListener('input', function () { this.value = this.value.replace(/\D/g, '').slice(0, 6); });
+  });
+  $('social-mi-pin-cancelar').addEventListener('click', cerrarVentanaMiPin);
+  ventanaMiPin.addEventListener('click', function (e) { if (e.target === ventanaMiPin) cerrarVentanaMiPin(); });
+  $('social-form-mi-pin').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var actual = $('social-mi-pin-actual').value, nuevo = $('social-mi-pin-nuevo').value, otra = $('social-mi-pin-repetir').value;
+    var error = $('social-mi-pin-error');
+    if (!/^[0-9]{4,6}$/.test(actual)) { error.textContent = t('socialErrPin'); $('social-mi-pin-actual').focus(); return; }
+    if (!/^[0-9]{4,6}$/.test(nuevo)) { error.textContent = t('socialErrPin'); $('social-mi-pin-nuevo').focus(); return; }
+    if (nuevo !== otra) { error.textContent = t('socialPinNoCoincide'); $('social-mi-pin-repetir').focus(); return; }
+    if (!ws || ws.readyState !== 1) { error.textContent = t('socialErrRed'); return; }
+    error.textContent = '';
+    $('social-mi-pin-guardar').disabled = true;
+    ws.send(JSON.stringify({ t: 'cambiar_pin', actual: actual, nuevo: nuevo }));
+  });
 
   /* ---------- Menú del chat abierto: silenciar y borrar ---------- */
   function pintarMenuChat() {
@@ -1333,6 +1954,33 @@
   }
 
   // Baja el archivo con el token de la sesión (nunca en la dirección) y lo guarda en memoria.
+  // Descargar una foto o un video que ya está en el teléfono (sin volver a pedirlo al servidor).
+  var tiposArchivo = {};        // dirección blob: -> tipo (image/webp, video/mp4...)
+  var EXTENSIONES = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'video/mp4': 'mp4', 'video/webm': 'webm' };
+  function descargar(url, base, ts) {
+    var tipo = String(tiposArchivo[url] || '').split(';')[0];
+    var d = new Date(ts || Date.now()), dos = function (n) { return ('0' + n).slice(-2); };
+    var fecha = d.getFullYear() + dos(d.getMonth() + 1) + dos(d.getDate()) + '-' + dos(d.getHours()) + dos(d.getMinutes()) + dos(d.getSeconds());
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'shukito-' + base + '-' + fecha + '.' + (EXTENSIONES[tipo] || (tipo.indexOf('video') === 0 ? 'mp4' : 'jpg'));
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  function botonDescargar(url, tipo, ts) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'social-descargar';
+    var etiqueta = t(tipo === 'video' ? 'socialDescargarVideo' : 'socialDescargarFoto');
+    b.setAttribute('aria-label', etiqueta);
+    b.title = etiqueta;
+    b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    b.addEventListener('click', function (e) { e.stopPropagation(); descargar(url, tipo, ts); });
+    return b;
+  }
+
   function cargarArchivo(clave) {
     if (!archivosCargados[clave]) {
       archivosCargados[clave] = fetch(SOCIAL_SERVIDOR + '/archivo/' + clave, {
@@ -1342,7 +1990,9 @@
         if (!r.ok) throw r.status;
         return r.blob();
       }).then(function (b) {
-        return URL.createObjectURL(b);
+        var u = URL.createObjectURL(b);
+        tiposArchivo[u] = b.type || '';
+        return u;
       });
       archivosCargados[clave].catch(function () { delete archivosCargados[clave]; });
     }
@@ -1369,6 +2019,7 @@
     caja.setAttribute('data-archivo', m.archivo);
     caja.setAttribute('data-tipo', m.tipo);
     caja.setAttribute('data-de', m.nombre || '');
+    caja.setAttribute('data-ts', m.ts || '');
     var espera = document.createElement('span');
     espera.className = 'social-medio-espera';
     espera.textContent = etiquetaMedio(m);
@@ -1405,6 +2056,7 @@
       }
       caja.textContent = '';
       caja.appendChild(el);
+      if (tipo === 'foto' || tipo === 'video') caja.appendChild(botonDescargar(url, tipo, Number(caja.getAttribute('data-ts')) || 0));
     }).catch(function () {
       if (!espera) return;
       espera.textContent = t('socialErrCargar');
@@ -1424,7 +2076,10 @@
   }
 
   // Foto en grande
+  var urlVisor = '';
+  $('social-visor-descargar').addEventListener('click', function () { if (urlVisor) descargar(urlVisor, 'foto'); });
   function abrirVisor(url) {
+    urlVisor = url;
     $('social-visor-img').src = url;
     $('social-visor').hidden = false;
     $('social-visor-cerrar').focus();
@@ -1832,6 +2487,8 @@
   }
   function reconectar() {
     estadoTxt.textContent = t('socialConectando');
+    estadoTxt.classList.remove('con-punto');
+    $('social-mi-avatar').classList.remove('en-linea');
     botonEnviar.disabled = true;
     $('social-adjuntar').disabled = true;
     $('social-microfono').disabled = true;
@@ -1854,7 +2511,7 @@
   /* ---------- Mensajes del servidor ---------- */
   function ponerPerfil(p) {
     if (!p || !p.n) return;
-    perfiles[minus(p.n)] = { n: p.n, avatar: p.avatar, estado: p.estado || '' };
+    perfiles[minus(p.n)] = { n: p.n, avatar: p.avatar, estado: p.estado || '', musica: p.musica || '' };
   }
 
   function recibir(m) {
@@ -1878,6 +2535,8 @@
       ponerSilencios(m.silencios);
       reaccionesDe = {};
       (m.reacciones || []).forEach(function (x) { ponerReaccion(x.id, x.n, x.e); });
+      estados = m.estados || [];
+      pintarPuntoEstados();
       pintarAdmin();
       pintarPerfil();
       pintarCabeceraSala();
@@ -1949,7 +2608,7 @@
     } else if (m.t === 'estado') {
       usuarios = m.usuarios || [];
       var cuantos = usuarios.filter(function (u) { return u.enLinea; }).length;
-      if (!bloqueado) estadoTxt.textContent = t('socialEnLineaCuenta', { n: cuantos });
+      if (!bloqueado) { estadoTxt.textContent = t('socialEnLineaCuenta', { n: cuantos }); estadoTxt.classList.add('con-punto'); }
       pintarCabeceraSala();
       refrescarListas();
       actualizarMarcas();
@@ -1986,6 +2645,28 @@
       avisar(mm);
       actualizarAsterisco();
       refrescarListas();
+    } else if (m.t === 'estado_nuevo') {
+      estados = estados.filter(function (x) { return x.id !== m.e.id; });
+      estados.push(m.e);
+      pintarPuntoEstados();
+      if (panel === 'estados') pintarEstados();
+    } else if (m.t === 'estado_borrado') {
+      estados = estados.filter(function (x) { return x.id !== m.id; });
+      quitarDelVisor(m.id);
+      pintarPuntoEstados();
+      if (panel === 'estados') pintarEstados();
+    } else if (m.t === 'estado_visto') {
+      var ev = estados.filter(function (x) { return x.id === m.id; })[0];
+      if (ev) {
+        ev.vistos = (ev.vistos || []).filter(function (v) { return minus(v.n) !== minus(m.n); }).concat([{ n: m.n, ts: m.ts }]);
+        if (!visorEstado.hidden && visorLista[visorI] && visorLista[visorI].id === m.id) pintarVistos();
+      }
+    } else if (m.t === 'estado_publicado') {
+      cerrarVentanaEstado();
+      avisoEstados(t('socialEstadoPublicado'));
+    } else if (m.t === 'pin_cambiado') {
+      cerrarVentanaMiPin();
+      avisoAjustes(t('socialPinCambiado'));
     } else if (m.t === 'desbloqueo') {
       desbloqueado(!!m.ok);
     } else if (m.t === 'reaccion') {
@@ -2011,6 +2692,8 @@
         if (m.max && lista2.length > m.max) lista2 = lista2.slice(-m.max);
         chats[sp].mensajes = lista2;
       }
+      pintarPuntoEstados();
+      if (panel === 'estados') pintarEstados();
       pintarTodo();
       refrescarListas();
       actualizarAsterisco();
@@ -2031,6 +2714,20 @@
         delete traduciendo[m.id];
         var filaE = lista.querySelector('.social-fila[data-id="' + Number(m.id) + '"]');
         if (filaE) pintarTraduccion(filaE, m.id);
+      }
+      // Estados
+      if (m.e === 'estado_foto' || m.e === 'estados_lleno') {
+        $('social-estado-foto-publicar').disabled = false;
+        $('social-estado-foto-estado').textContent = '';
+        $('social-estado-foto-error').textContent = t(m.e === 'estados_lleno' ? 'socialErrEstadosLleno' : 'socialErrEstadoFoto');
+      }
+      if (m.e === 'musica_larga') avisoEstados(t('socialErrMusicaLarga'), true);
+      // Cambiar mi PIN
+      if (m.e === 'pin_actual' || m.e === 'pin_bloqueado' || m.e === 'pin_nuevo') {
+        $('social-mi-pin-guardar').disabled = false;
+        $('social-mi-pin-error').textContent = m.e === 'pin_actual' ? t('socialErrPinActual', { n: m.quedan })
+          : m.e === 'pin_nuevo' ? t('socialErrPin') : t('socialErrBloqueado', { m: Math.max(1, Math.ceil((m.espera || 3600) / 60)) });
+        if (m.e === 'pin_actual') { $('social-mi-pin-actual').value = ''; $('social-mi-pin-actual').focus(); }
       }
       // Errores del administrador
       var minutosA = Math.max(1, Math.ceil((m.espera || 600) / 60));
@@ -2927,6 +3624,10 @@
     pintarAjustesAvisos();
     actualizarAsterisco();
     pintarRespuesta();
+    avisoAjustes('');
+    avisoEstados('');
+    pintarAjustes();
+    if (panel === 'estados') pintarEstados();
     if (!ventanaGifs.hidden) cargarGifs(buscadorGif.value);
     if (!ventanaStickers.hidden) pintarStickers();
     if (!abierto) return;

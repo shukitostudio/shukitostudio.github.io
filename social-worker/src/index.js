@@ -72,6 +72,15 @@ function leerImagen(buf) {
   return null;
 }
 
+// ---------- Estados (como BBM y WhatsApp): duran 24 horas ----------
+// Tipos: "foto" (foto con texto, como WhatsApp), "avatar" (cambió su foto de perfil), "estado" (cambió su estado)
+// y "musica" (lo que está escuchando, escrito por la persona). Los ven todos los del chat.
+const ESTADO_HORAS = 24;
+const ESTADOS_FOTO_MAX = 10;               // fotos de estado activas por persona
+const MAX_TEXTO_ESTADO_FOTO = 200;         // caracteres del texto de una foto de estado
+const MAX_MUSICA = 80;                     // caracteres de "Escuchando"
+const ESTADO_JUNTAR = 10 * 60 * 1000;      // dos cambios del mismo tipo en 10 minutos: queda solo el último
+
 // ---------- Reacciones a los mensajes ----------
 const REACCIONES = ["👍", "❤️", "😢", "😡", "😂"];
 
@@ -282,6 +291,13 @@ export class SalaSocial extends DurableObject {
     const columnas2 = String(this.sql.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mensajes'").one().sql);
     if (!columnas2.includes("gif")) this.sql.exec("ALTER TABLE mensajes ADD COLUMN gif TEXT");
     if (!columnas2.includes("cita")) this.sql.exec("ALTER TABLE mensajes ADD COLUMN cita TEXT");
+    // Estados de 24 horas y quién vio cada foto de estado.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS estados (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL COLLATE NOCASE, tipo TEXT NOT NULL,
+      texto TEXT NOT NULL DEFAULT '', avatar TEXT, archivo TEXT, mime TEXT, ancho INTEGER NOT NULL DEFAULT 0,
+      alto INTEGER NOT NULL DEFAULT 0, ts INTEGER NOT NULL)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS estados_vistos (
+      id INTEGER NOT NULL, nombre TEXT NOT NULL COLLATE NOCASE, ts INTEGER NOT NULL, PRIMARY KEY (id, nombre))`);
     // Stickers de cada persona (el archivo está en R2 como "s/<clave>").
     this.sql.exec(`CREATE TABLE IF NOT EXISTS stickers (
       clave TEXT PRIMARY KEY, nombre TEXT NOT NULL COLLATE NOCASE, mime TEXT NOT NULL, tam INTEGER NOT NULL,
@@ -495,9 +511,10 @@ export class SalaSocial extends DurableObject {
     await this.limpiarArchivos();
     const fila = this.sql.exec("SELECT COUNT(*) AS c FROM mensajes").one();
     const archivos = this.sql.exec("SELECT COUNT(*) AS c FROM archivos").one();
+    const estados = this.sql.exec("SELECT COUNT(*) AS c FROM estados").one();
     // Cada teléfono borra los mensajes más viejos que "corte" y deja como máximo "max" por chat.
     this.enviarATodos({ t: "purga", corte: Date.now() - this.horas() * 3600 * 1000, max: this.maxMensajes() });
-    if (fila.c > 0 || archivos.c > 0 || this.ctx.getWebSockets().length > 0) await this.ctx.storage.setAlarm(Date.now() + LIMPIEZA_CADA);
+    if (fila.c > 0 || archivos.c > 0 || estados.c > 0 || this.ctx.getWebSockets().length > 0) await this.ctx.storage.setAlarm(Date.now() + LIMPIEZA_CADA);
   }
 
   // Borra de R2 los archivos cuyo mensaje ya no existe (se borró solo, lo borró el administrador...)
@@ -564,6 +581,7 @@ export class SalaSocial extends DurableObject {
 
   async limpiarArchivos() {
     await this.limpiarStickers();
+    await this.limpiarEstados();
     const limite = Date.now() - SIN_USAR_HORAS * 3600 * 1000;
     const sobran = this.sql.exec(`SELECT clave FROM archivos
       WHERE (mensaje IS NULL AND ts < ?) OR (mensaje IS NOT NULL AND mensaje NOT IN (SELECT id FROM mensajes))
@@ -617,7 +635,17 @@ export class SalaSocial extends DurableObject {
     if (!nombre) return json({ error: "sesion" }, 401);
     const a = this.sql.exec(`SELECT a.mime AS mime, m.id AS id, m.sala AS sala FROM archivos a
       JOIN mensajes m ON m.id = a.mensaje WHERE a.clave = ?`, clave).toArray()[0];
-    if (!a || !esMiembro(a.sala, nombre)) return json({ error: "no_existe" }, 404);
+    if (!a) {
+      // Foto de estado: la ve cualquiera del chat mientras no pasen 24 horas.
+      const e = this.sql.exec("SELECT mime FROM estados WHERE archivo = ? AND tipo = 'foto' AND ts > ?",
+        clave, Date.now() - ESTADO_HORAS * 3600 * 1000).toArray()[0];
+      const obj = e && this.env.ARCHIVOS ? await this.env.ARCHIVOS.get("m/" + clave) : null;
+      if (!obj) return json({ error: "no_existe" }, 404);
+      return new Response(obj.body, { headers: {
+        "Content-Type": e.mime || "image/webp", "Content-Length": String(obj.size), "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline" } });
+    }
+    if (!esMiembro(a.sala, nombre)) return json({ error: "no_existe" }, 404);
     const oculto = this.sql.exec("SELECT hasta FROM ocultos WHERE nombre = ? AND sala = ?", nombre, a.sala).toArray()[0];
     if (oculto && a.id <= oculto.hasta) return json({ error: "no_existe" }, 404);
     const obj = this.env.ARCHIVOS ? await this.env.ARCHIVOS.get("m/" + clave) : null;
@@ -835,7 +863,76 @@ export class SalaSocial extends DurableObject {
 
   perfiles() {
     return this.sql.exec("SELECT nombre, avatar, estado FROM usuarios ORDER BY nombre").toArray()
-      .map((u) => ({ n: u.nombre, avatar: u.avatar, estado: u.estado }));
+      .map((u) => this.perfilCompleto(u));
+  }
+  // Perfil como lo ve el teléfono, con "musica" si tiene un estado de música vigente.
+  perfilCompleto(u) {
+    const p = { n: u.nombre, avatar: u.avatar, estado: u.estado };
+    const m = this.sql.exec("SELECT texto FROM estados WHERE nombre = ? AND tipo = 'musica' AND ts > ? ORDER BY id DESC LIMIT 1",
+      u.nombre, Date.now() - ESTADO_HORAS * 3600 * 1000).toArray()[0];
+    if (m && m.texto) p.musica = m.texto;
+    return p;
+  }
+  enviarPerfil(nombre) {
+    const u = this.sql.exec("SELECT nombre, avatar, estado FROM usuarios WHERE nombre = ?", nombre).toArray()[0];
+    if (u) this.enviarATodos({ t: "perfil", p: this.perfilCompleto(u) });
+  }
+
+  // ---------- Estados ----------
+  // Un estado como lo recibe el teléfono. Solo su dueño recibe la lista de quién vio sus fotos.
+  paraEstado(e, para) {
+    const x = { id: e.id, n: e.nombre, tp: e.tipo, ts: e.ts };
+    if (e.texto) x.x = e.texto;
+    if (e.tipo === "avatar") x.av = e.avatar;
+    if (e.tipo === "foto") { x.archivo = e.archivo; x.ancho = e.ancho; x.alto = e.alto; }
+    if (para && e.tipo === "foto") {
+      if (e.nombre.toLowerCase() === para.toLowerCase()) {
+        x.vistos = this.sql.exec("SELECT nombre, ts FROM estados_vistos WHERE id = ? ORDER BY ts", e.id).toArray().map((v) => ({ n: v.nombre, ts: v.ts }));
+      } else {
+        x.visto = this.sql.exec("SELECT 1 FROM estados_vistos WHERE id = ? AND nombre = ?", e.id, para).toArray().length > 0;
+      }
+    }
+    return x;
+  }
+  estadosPara(nombre) {
+    return this.sql.exec("SELECT * FROM estados WHERE ts > ? ORDER BY id", Date.now() - ESTADO_HORAS * 3600 * 1000).toArray()
+      .map((e) => this.paraEstado(e, nombre));
+  }
+  quitarEstados(filas) {
+    for (const f of filas) {
+      this.sql.exec("DELETE FROM estados WHERE id = ?", f.id);
+      this.sql.exec("DELETE FROM estados_vistos WHERE id = ?", f.id);
+      this.enviarATodos({ t: "estado_borrado", id: f.id });
+    }
+  }
+  // Agrega un estado y avisa a todos. El mismo tipo repetido en pocos minutos reemplaza al anterior.
+  async agregarEstado(nombre, tipo, datos) {
+    const ahora = Date.now();
+    if (tipo !== "foto") {
+      this.quitarEstados(this.sql.exec("SELECT id FROM estados WHERE nombre = ? AND tipo = ? AND ts > ?",
+        nombre, tipo, tipo === "musica" ? 0 : ahora - ESTADO_JUNTAR).toArray());
+    }
+    const id = this.sql.exec(`INSERT INTO estados (nombre, tipo, texto, avatar, archivo, mime, ancho, alto, ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, nombre, tipo, datos.texto || "", datos.avatar || null,
+      datos.archivo || null, datos.mime || null, datos.ancho || 0, datos.alto || 0, ahora).one().id;
+    const e = this.sql.exec("SELECT * FROM estados WHERE id = ?", id).one();
+    // Cada uno recibe su versión (el dueño, con la lista de vistos vacía).
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (a && a.nombre) this.enviar(ws, { t: "estado_nuevo", e: this.paraEstado(e, a.nombre) });
+    }
+    await this.programarLimpieza();
+  }
+  // Estados vencidos (24 horas) o de cuentas que ya no existen: se borran con su foto.
+  async limpiarEstados() {
+    const viejos = this.sql.exec(`SELECT id, archivo FROM estados WHERE ts < ? OR nombre NOT IN (SELECT nombre FROM usuarios) LIMIT 500`,
+      Date.now() - ESTADO_HORAS * 3600 * 1000).toArray();
+    if (!viejos.length) return;
+    const fotos = viejos.filter((f) => f.archivo).map((f) => "m/" + f.archivo);
+    if (fotos.length && this.env.ARCHIVOS) {
+      try { await this.env.ARCHIVOS.delete(fotos); } catch (e) { return; }
+    }
+    this.quitarEstados(viejos);
   }
 
   // Cierra todas las conexiones de un usuario (por ejemplo, al borrar su cuenta).
@@ -899,7 +996,7 @@ export class SalaSocial extends DurableObject {
       const reacciones = this.sql.exec("SELECT id, nombre, emoji FROM reacciones").toArray()
         .filter((x) => visibles.has(x.id)).map((x) => ({ id: x.id, n: x.nombre, e: x.emoji }));
       this.enviar(ws, { t: "hola", yo: fila.nombre, mensajes, lecturas, perfiles: this.perfiles(), horas: this.horas(), admin,
-        silencios: this.silenciosDe(fila.nombre), reacciones });
+        silencios: this.silenciosDe(fila.nombre), reacciones, estados: this.estadosPara(fila.nombre) });
       this.enviarATodos(this.estado());
       await this.programarLimpieza();
       return;
@@ -991,9 +1088,69 @@ export class SalaSocial extends DurableObject {
       }
       if (!cambios.length) return;
       this.ultimoPerfil.set(yo.nombre, ahora);
+      const antes = this.sql.exec("SELECT avatar, estado FROM usuarios WHERE nombre = ?", yo.nombre).toArray()[0] || {};
       this.sql.exec(`UPDATE usuarios SET ${cambios.join(", ")}, visto = ? WHERE nombre = ?`, ...valores, ahora, yo.nombre);
       const p = this.sql.exec("SELECT nombre, avatar, estado FROM usuarios WHERE nombre = ?", yo.nombre).toArray()[0];
-      if (p) this.enviarATodos({ t: "perfil", p: { n: p.nombre, avatar: p.avatar, estado: p.estado } });
+      if (p) this.enviarATodos({ t: "perfil", p: this.perfilCompleto(p) });
+      // Como en BBM: el cambio de foto o de estado aparece en Estados.
+      if (p && m.avatar !== undefined && p.avatar !== antes.avatar) await this.agregarEstado(yo.nombre, "avatar", { avatar: p.avatar });
+      if (p && m.estado !== undefined && p.estado && p.estado !== antes.estado) await this.agregarEstado(yo.nombre, "estado", { texto: p.estado });
+      return;
+    }
+
+    if (m.t === "musica") {
+      // "Escuchando": lo escribe la persona (la página no puede saber qué suena en el teléfono). Vacío lo quita.
+      const ahora = Date.now();
+      if (ahora - (this.ultimoPerfil.get(yo.nombre) || 0) < ESPERA_ENTRE_PERFILES) { this.enviar(ws, { t: "error", e: "rapido" }); return; }
+      const texto = limpiarTexto(m.texto, false);
+      if ([...texto].length > MAX_MUSICA) { this.enviar(ws, { t: "error", e: "musica_larga" }); return; }
+      this.ultimoPerfil.set(yo.nombre, ahora);
+      if (texto) await this.agregarEstado(yo.nombre, "musica", { texto });
+      else this.quitarEstados(this.sql.exec("SELECT id FROM estados WHERE nombre = ? AND tipo = 'musica'", yo.nombre).toArray());
+      this.enviarPerfil(yo.nombre);
+      return;
+    }
+
+    if (m.t === "estado_foto") {
+      // Foto de estado (como WhatsApp): la foto ya se subió con /subir; aquí se publica.
+      const arch = CLAVE_ARCHIVO.test(String(m.archivo || ""))
+        ? this.sql.exec("SELECT clave, mime, ancho, alto FROM archivos WHERE clave = ? AND nombre = ? AND tipo = 'foto' AND mensaje IS NULL",
+          m.archivo, yo.nombre).toArray()[0] : null;
+      if (!arch) { this.enviar(ws, { t: "error", e: "estado_foto" }); return; }
+      const activas = this.sql.exec("SELECT COUNT(*) AS c FROM estados WHERE nombre = ? AND tipo = 'foto' AND ts > ?",
+        yo.nombre, Date.now() - ESTADO_HORAS * 3600 * 1000).one().c;
+      if (activas >= ESTADOS_FOTO_MAX) { this.enviar(ws, { t: "error", e: "estados_lleno" }); return; }
+      const texto = limpiarTexto(m.texto, false);
+      if ([...texto].length > MAX_TEXTO_ESTADO_FOTO) { this.enviar(ws, { t: "error", e: "largo" }); return; }
+      // La foto deja de ser un archivo "sin enviar": ahora es del estado (se borra con él a las 24 horas).
+      this.sql.exec("DELETE FROM archivos WHERE clave = ?", arch.clave);
+      await this.agregarEstado(yo.nombre, "foto", { texto, archivo: arch.clave, mime: arch.mime, ancho: arch.ancho, alto: arch.alto });
+      this.enviar(ws, { t: "estado_publicado" });
+      return;
+    }
+
+    if (m.t === "estado_visto") {
+      const e = this.sql.exec("SELECT id, nombre FROM estados WHERE id = ? AND tipo = 'foto' AND ts > ?",
+        Math.floor(Number(m.id) || 0), Date.now() - ESTADO_HORAS * 3600 * 1000).toArray()[0];
+      if (!e || e.nombre.toLowerCase() === yo.nombre.toLowerCase()) return;
+      const ya = this.sql.exec("SELECT 1 FROM estados_vistos WHERE id = ? AND nombre = ?", e.id, yo.nombre).toArray().length;
+      if (ya) return;
+      const ahora = Date.now();
+      this.sql.exec("INSERT INTO estados_vistos (id, nombre, ts) VALUES (?, ?, ?)", e.id, yo.nombre, ahora);
+      // Solo su dueño se entera de quién lo vio.
+      for (const w of this.ctx.getWebSockets()) {
+        const a = w.deserializeAttachment();
+        if (a && a.nombre && a.nombre.toLowerCase() === e.nombre.toLowerCase()) this.enviar(w, { t: "estado_visto", id: e.id, n: yo.nombre, ts: ahora });
+      }
+      return;
+    }
+
+    if (m.t === "estado_borrar") {
+      // Cada uno borra los suyos (el administrador, cualquiera).
+      const e = this.sql.exec("SELECT id, nombre, archivo FROM estados WHERE id = ?", Math.floor(Number(m.id) || 0)).toArray()[0];
+      if (!e || (e.nombre.toLowerCase() !== yo.nombre.toLowerCase() && !yo.admin)) return;
+      if (e.archivo && this.env.ARCHIVOS) { try { await this.env.ARCHIVOS.delete("m/" + e.archivo); } catch (err) { /* la limpieza lo reintenta */ } }
+      this.quitarEstados([e]);
       return;
     }
 
@@ -1093,6 +1250,32 @@ export class SalaSocial extends DurableObject {
         else this.sql.exec("UPDATE usuarios SET fallos = ? WHERE nombre = ?", u.fallos + 1, u.nombre);
       }
       this.enviar(ws, { t: "desbloqueo", ok: bien });
+      return;
+    }
+
+    if (m.t === "cambiar_pin") {
+      // Ajustes → Cambiar PIN: hace falta el PIN actual. Equivocarse cuenta como al entrar (5 errores = 1 hora).
+      const ahora = Date.now();
+      const actual = String(m.actual || ""), nuevo = String(m.nuevo || "");
+      if (!PIN_VALIDO.test(nuevo)) { this.enviar(ws, { t: "error", e: "pin_nuevo" }); return; }
+      const u = this.sql.exec("SELECT nombre, pin_hash, pin_sal, fallos, bloqueo FROM usuarios WHERE nombre = ?", yo.nombre).toArray()[0];
+      if (!u) return;
+      if (u.bloqueo > ahora) { this.enviar(ws, { t: "error", e: "pin_bloqueado", espera: Math.ceil((u.bloqueo - ahora) / 1000) }); return; }
+      const bien = PIN_VALIDO.test(actual) && iguales(await hashPin(actual, u.pin_sal), u.pin_hash);
+      if (!bien) {
+        const fallos = u.fallos + 1;
+        if (fallos >= PIN_FALLOS_MAX) {
+          this.sql.exec("UPDATE usuarios SET fallos = 0, bloqueo = ? WHERE nombre = ?", ahora + PIN_BLOQUEO, u.nombre);
+          this.enviar(ws, { t: "error", e: "pin_bloqueado", espera: Math.ceil(PIN_BLOQUEO / 1000) });
+        } else {
+          this.sql.exec("UPDATE usuarios SET fallos = ? WHERE nombre = ?", fallos, u.nombre);
+          this.enviar(ws, { t: "error", e: "pin_actual", quedan: PIN_FALLOS_MAX - fallos });
+        }
+        return;
+      }
+      const sal = aleatorio(16);
+      this.sql.exec("UPDATE usuarios SET pin_hash = ?, pin_sal = ?, fallos = 0 WHERE nombre = ?", await hashPin(nuevo, sal), sal, u.nombre);
+      this.enviar(ws, { t: "pin_cambiado" });
       return;
     }
 

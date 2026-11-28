@@ -22,7 +22,7 @@
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%238a4a22'/%3E%3Cpath d='M12 14l14 10h12l14-10-3 24-17 14-17-14z' fill='%23f2792b'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="social.css?v=8">
+  <link rel="stylesheet" href="social.css?v=9">
 </head>
 <body>
 
@@ -173,6 +173,9 @@
           <h2 id="social-titulo" data-i="socialTitulo"></h2>
           <span id="social-estado" class="social-estado"></span>
         </div>
+        <button type="button" id="social-ir-chat" class="social-icono social-ir-chat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
         <button type="button" id="social-cerrar" class="social-icono" data-i-label="socialSalidaEmergencia">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
         </button>
@@ -189,6 +192,7 @@
             <span id="social-insignia-admin" class="social-insignia" data-i="socialAdminInsignia" hidden></span>
           </span>
           <button type="button" id="social-mi-estado" class="social-mi-estado" data-i-label="socialCambiarEstado"></button>
+          <button type="button" id="social-mi-musica" class="social-musica" hidden></button>
           <form id="social-estado-form" class="social-estado-form" autocomplete="off" hidden>
             <input id="social-estado-caja" type="text" maxlength="60" enterkeyhint="done" data-i-ph="socialEstadoPista" data-i-label="socialCambiarEstado">
           </form>
@@ -302,6 +306,7 @@
       <!-- Foto en grande -->
       <div id="social-visor" class="social-visor" role="dialog" aria-modal="true" data-i-label="socialFotoGrande" hidden>
         <img id="social-visor-img" alt="">
+        <button type="button" id="social-visor-descargar" class="social-icono social-visor-descargar" data-i-label="socialDescargarFoto"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button type="button" id="social-visor-cerrar" class="social-icono" data-i-label="socialCerrar">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
         </button>
@@ -320,6 +325,88 @@
           <div class="social-ventana-botones">
             <button type="button" id="social-admin-pin-cancelar" class="social-boton secundario"><span data-i="socialCancelar"></span></button>
             <button type="submit" id="social-admin-pin-guardar" class="social-boton"><span data-i="socialGuardar"></span></button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Estados: publicar una foto -->
+      <div id="social-ventana-estado" class="social-ventana" role="dialog" aria-modal="true" aria-labelledby="social-ventana-estado-titulo" hidden>
+        <form id="social-form-estado-foto" class="social-ventana-caja" autocomplete="off" novalidate>
+          <h3 id="social-ventana-estado-titulo" data-i="socialEstadoNuevo"></h3>
+          <div id="social-estado-previa" class="social-medio-previa"></div>
+          <label class="social-campo">
+            <span data-i="socialEstadoTexto"></span>
+            <input id="social-estado-foto-texto" type="text" maxlength="200" data-i-ph="socialComentarioPista">
+          </label>
+          <p id="social-estado-foto-estado" class="social-nota" role="status"></p>
+          <p id="social-estado-foto-error" class="social-error" role="alert"></p>
+          <div class="social-ventana-botones">
+            <button type="button" id="social-estado-foto-cancelar" class="social-boton secundario"><span data-i="socialCancelar"></span></button>
+            <button type="submit" id="social-estado-foto-publicar" class="social-boton"><span data-i="socialEstadoPublicar"></span></button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Estados: lo que estoy escuchando -->
+      <div id="social-ventana-musica" class="social-ventana" role="dialog" aria-modal="true" aria-labelledby="social-ventana-musica-titulo" hidden>
+        <form id="social-form-musica" class="social-ventana-caja" autocomplete="off" novalidate>
+          <h3 id="social-ventana-musica-titulo"><span aria-hidden="true">🎵</span> <span data-i="socialMusicaTitulo"></span></h3>
+          <p class="social-nota" data-i="socialMusicaNota"></p>
+          <label class="social-campo">
+            <span data-i="socialMusicaCampo"></span>
+            <input id="social-musica-caja" type="text" maxlength="80" enterkeyhint="done" data-i-ph="socialMusicaPista">
+          </label>
+          <p id="social-musica-error" class="social-error" role="alert"></p>
+          <div class="social-ventana-botones">
+            <button type="button" id="social-musica-quitar" class="social-boton secundario"><span data-i="socialMusicaQuitar"></span></button>
+            <button type="button" id="social-musica-cancelar" class="social-boton secundario"><span data-i="socialCancelar"></span></button>
+            <button type="submit" class="social-boton"><span data-i="socialGuardar"></span></button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Estados: ver las fotos (como WhatsApp) -->
+      <div id="social-visor-estado" class="social-visor-estado" role="dialog" aria-modal="true" aria-labelledby="social-ve-nombre" hidden>
+        <div id="social-ve-barras" class="social-ve-barras" aria-hidden="true"></div>
+        <div class="social-ve-cabeza">
+          <span id="social-ve-avatar" class="social-avatar" aria-hidden="true"></span>
+          <span class="social-ve-textos"><strong id="social-ve-nombre"></strong><span id="social-ve-hora"></span></span>
+          <button type="button" id="social-ve-descargar" class="social-icono" data-i-label="socialDescargarFoto"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button type="button" id="social-ve-borrar" class="social-icono" data-i-label="socialEstadoBorrar" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" id="social-ve-cerrar" class="social-icono" data-i-label="socialCerrar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+        </div>
+        <div class="social-ve-centro">
+          <img id="social-ve-img" alt="">
+          <button type="button" id="social-ve-antes" class="social-ve-zona antes" data-i-label="socialEstadoAnterior"></button>
+          <button type="button" id="social-ve-despues" class="social-ve-zona despues" data-i-label="socialEstadoSiguiente"></button>
+        </div>
+        <p id="social-ve-texto" class="social-ve-texto"></p>
+        <button type="button" id="social-ve-vistos" class="social-ve-vistos" aria-expanded="false" aria-controls="social-ve-lista" hidden></button>
+        <ul id="social-ve-lista" class="social-ve-lista" hidden></ul>
+      </div>
+
+      <!-- Ajustes: cambiar mi PIN -->
+      <div id="social-ventana-mi-pin" class="social-ventana" role="dialog" aria-modal="true" aria-labelledby="social-ventana-mi-pin-titulo" hidden>
+        <form id="social-form-mi-pin" class="social-ventana-caja" autocomplete="off" novalidate>
+          <h3 id="social-ventana-mi-pin-titulo" data-i="socialCambiarPin"></h3>
+          <label class="social-campo">
+            <span data-i="socialPinActual"></span>
+            <input id="social-mi-pin-actual" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off">
+          </label>
+          <label class="social-campo">
+            <span data-i="socialPinNuevo"></span>
+            <input id="social-mi-pin-nuevo" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off">
+          </label>
+          <label class="social-campo">
+            <span data-i="socialPinRepetir"></span>
+            <input id="social-mi-pin-repetir" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off">
+          </label>
+          <p id="social-mi-pin-error" class="social-error" role="alert"></p>
+          <div class="social-ventana-botones">
+            <button type="button" id="social-mi-pin-cancelar" class="social-boton secundario"><span data-i="socialCancelar"></span></button>
+            <button type="submit" id="social-mi-pin-guardar" class="social-boton"><span data-i="socialGuardar"></span></button>
           </div>
         </form>
       </div>
@@ -353,6 +440,7 @@
           <div class="social-muro-textos">
             <strong class="social-muro-nombre"><span id="social-muro-nombre"></span> <span id="social-muro-silencio" class="social-silencio" aria-hidden="true" hidden>🔕</span></strong>
             <span id="social-muro-estado" class="social-muro-estado"></span>
+            <span id="social-muro-musica" class="social-musica social-muro-musica" hidden></span>
             <span id="social-muro-presencia" class="social-muro-presencia"></span>
           </div>
           <div id="social-muro-menu-caja" class="social-muro-menu-caja">
@@ -362,13 +450,29 @@
           </div>
         </div>
 
-        <!-- Botones de chats y contactos, y el chat abierto (solo en la lista) -->
-        <div class="social-barra-chats">
-          <button type="button" id="social-boton-chats" class="social-pildora" aria-expanded="false" aria-controls="social-panel-chats">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <!-- Menú principal: pestañas Chats, Estados, Contactos, Grupos y Ajustes (solo en la lista) -->
+        <div class="social-barra-chats social-pestanas-menu" role="tablist" data-i-label="socialMenuPrincipal">
+          <button type="button" role="tab" id="social-boton-chats" class="social-pestana" aria-selected="false" aria-controls="social-panel-chats">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5.5h15a1.5 1.5 0 011.5 1.5v8.5a1.5 1.5 0 01-1.5 1.5H10l-4.5 3.5V17H4.5A1.5 1.5 0 013 15.5V7a1.5 1.5 0 011.5-1.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
             <span data-i="socialChats"></span>
-            <span id="social-asterisco-chats" class="social-asterisco" aria-hidden="true" hidden>*</span>
+            <span id="social-asterisco-chats" class="social-pestana-n" aria-hidden="true" hidden></span>
           </button>
+          <button type="button" role="tab" id="social-boton-estados" class="social-pestana" aria-selected="false" aria-controls="social-panel-estados">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 108.5 8.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.5 4.3a8.6 8.6 0 013.6 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="2 3"/><path d="M12 8.5v7M8.5 12h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span data-i="socialEstados"></span>
+            <span id="social-estados-punto" class="social-pestana-punto" aria-hidden="true" hidden></span>
+          </button>
+          <button type="button" role="tab" id="social-boton-contactos" class="social-pestana" aria-selected="false" aria-controls="social-panel-contactos">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 19c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.8a3.4 3.4 0 010 6.4M18 13.8c2 .7 3.2 2.5 3.6 5.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span data-i="socialContactos"></span>
+          </button>
+          <button type="button" role="tab" id="social-boton-ajustes" class="social-pestana" aria-selected="false" aria-controls="social-panel-ajustes">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.8l1.6 2.4 2.8-.7.7 2.8 2.4 1.6-1.3 2.6 1.3 2.6-2.4 1.6-.7 2.8-2.8-.7L12 21.2l-1.6-2.4-2.8.7-.7-2.8-2.4-1.6 1.3-2.6-1.3-2.6 2.4-1.6.7-2.8 2.8.7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            <span data-i="socialAjustes"></span>
+          </button>
+        </div>
+        <!-- Chat abierto con su menú (silenciar y borrar): el menú se usa desde el ⋮ del muro -->
+        <div class="social-sala-caja">
           <div class="social-sala-actual">
             <button type="button" id="social-sala-boton" class="social-sala-boton" aria-haspopup="menu" aria-expanded="false" aria-controls="social-menu-chat">
               <span id="social-sala-avatar" class="social-avatar chico" aria-hidden="true"></span>
@@ -384,10 +488,6 @@
               <button type="button" role="menuitem" id="social-op-borrar-chat" class="peligro"></button>
             </div>
           </div>
-          <button type="button" id="social-boton-contactos" class="social-pildora" aria-expanded="false" aria-controls="social-panel-contactos">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 19c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.8a3.4 3.4 0 010 6.4M18 13.8c2 .7 3.2 2.5 3.6 5.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            <span data-i="socialContactos"></span>
-          </button>
         </div>
 
         <div class="social-vista">
@@ -504,15 +604,91 @@
           </div>
 
           <!-- Lista de chats: el general y los privados -->
-          <section id="social-panel-chats" class="social-panel" aria-labelledby="social-panel-chats-titulo" hidden>
-            <h3 id="social-panel-chats-titulo" class="social-panel-titulo" data-i="socialChats"></h3>
-            <ul id="social-lista-chats" class="social-lista"></ul>
+          <section id="social-panel-chats" class="social-panel social-panel-menu" role="tabpanel" aria-labelledby="social-boton-chats" hidden>
+            <div class="social-panel-cabeza">
+              <h3 id="social-panel-chats-titulo" class="social-panel-titulo" data-i="socialChats"></h3>
+              <button type="button" id="social-chats-buscar" class="social-boton-circulo" aria-expanded="false" aria-controls="social-chats-busqueda" data-i-label="socialBuscarChats">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+              </button>
+              <div class="social-menu-caja">
+                <button type="button" id="social-chats-ordenar" class="social-boton-circulo" aria-haspopup="menu" aria-expanded="false" aria-controls="social-menu-orden" data-i-label="socialOrdenarChats">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h11M4 18h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+                </button>
+                <div id="social-menu-orden" class="social-menu social-menu-orden" role="menu" hidden>
+                  <button type="button" role="menuitemradio" class="con-marca" data-orden="recientes" aria-checked="true" data-i="socialOrdenRecientes"></button>
+                  <button type="button" role="menuitemradio" class="con-marca" data-orden="noleidos" aria-checked="false" data-i="socialOrdenNoLeidos"></button>
+                  <button type="button" role="menuitemradio" class="con-marca" data-orden="nombre" aria-checked="false" data-i="socialOrdenNombre"></button>
+                </div>
+              </div>
+            </div>
+            <div id="social-chats-busqueda" class="social-busqueda" hidden>
+              <input type="search" id="social-chats-filtro" maxlength="40" enterkeyhint="search" autocomplete="off" data-i-ph="socialBuscarPista" data-i-label="socialBuscarChats">
+            </div>
+            <ul id="social-lista-chats" class="social-lista social-lista-tarjetas"></ul>
           </section>
 
+          <!-- Estados y Grupos: funciones nuevas (por ahora, solo el aviso de "pronto") -->
+          <section id="social-panel-estados" class="social-panel social-panel-menu" role="tabpanel" aria-labelledby="social-boton-estados" hidden>
+            <div class="social-panel-cabeza">
+              <h3 class="social-panel-titulo" data-i="socialEstados"></h3>
+              <button type="button" id="social-estado-camara" class="social-boton-circulo" data-i-label="socialEstadoNuevo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+              <button type="button" id="social-musica-boton" class="social-boton-circulo" data-i-label="socialMusicaTitulo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5.5l11-2.5v12.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><ellipse cx="6.5" cy="18" rx="2.8" ry="2.3" fill="currentColor"/><ellipse cx="17.5" cy="15.5" rx="2.8" ry="2.3" fill="currentColor"/></svg></button>
+            </div>
+            <p id="social-estados-aviso" class="social-admin-aviso" role="status"></p>
+            <ul id="social-estados-fotos" class="social-estados-fotos" data-i-label="socialEstadosFotos"></ul>
+            <h4 class="social-ajustes-grupo" data-i="socialNovedades"></h4>
+            <ul id="social-estados-novedades" class="social-lista social-lista-tarjetas"></ul>
+            <input type="file" id="social-estado-archivo" accept="image/*" hidden>
+          </section>
+
+          <!-- Ajustes -->
+          <section id="social-panel-ajustes" class="social-panel social-panel-menu" role="tabpanel" aria-labelledby="social-boton-ajustes" hidden>
+            <div class="social-panel-cabeza"><h3 class="social-panel-titulo" data-i="socialAjustes"></h3></div>
+            <p id="social-aj-aviso" class="social-admin-aviso" role="status"></p>
+            <h4 class="social-ajustes-grupo" data-i="socialAjPerfil"></h4>
+            <div class="social-ajustes-caja">
+              <button type="button" id="social-aj-avatar" class="social-ajuste"><span data-i="socialCambiarAvatar"></span><svg class="social-ajuste-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button type="button" id="social-aj-musica" class="social-ajuste"><span data-i="socialMusicaTitulo"></span><svg class="social-ajuste-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button type="button" id="social-aj-estado" class="social-ajuste"><span data-i="socialCambiarEstado"></span><svg class="social-ajuste-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+            <h4 class="social-ajustes-grupo" data-i="socialAjNotif"></h4>
+            <div class="social-ajustes-caja">
+              <button type="button" id="social-aj-sonido" class="social-ajuste" role="switch" aria-checked="true"><span data-i="socialOpSonido"></span><span class="social-interruptor" aria-hidden="true"></span></button>
+              <button type="button" id="social-aj-notif" class="social-ajuste" role="switch" aria-checked="false"><span data-i="socialOpNotif"></span><span class="social-interruptor" aria-hidden="true"></span></button>
+            </div>
+            <h4 class="social-ajustes-grupo" data-i="socialAjPin"></h4>
+            <div class="social-ajustes-caja">
+              <button type="button" id="social-aj-pin" class="social-ajuste"><span data-i="socialCambiarPin"></span><svg class="social-ajuste-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button type="button" id="social-aj-bloquear" class="social-ajuste con-nota"><span><span data-i="socialBloquearAhora"></span><small class="social-ajuste-nota" data-i="socialBloquearNota"></small></span><svg class="social-ajuste-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+            <h4 id="social-aj-idioma-titulo" class="social-ajustes-grupo" data-i="socialAjIdioma"></h4>
+            <div class="social-segmento" role="radiogroup" aria-labelledby="social-aj-idioma-titulo">
+              <button type="button" role="radio" aria-checked="false" data-aj-idioma="es">Español</button>
+              <button type="button" role="radio" aria-checked="false" data-aj-idioma="en">English</button>
+            </div>
+            <h4 id="social-aj-tema-titulo" class="social-ajustes-grupo" data-i="socialAjTema"></h4>
+            <div class="social-segmento" role="radiogroup" aria-labelledby="social-aj-tema-titulo">
+              <button type="button" role="radio" aria-checked="false" data-aj-tema="dia"><span aria-hidden="true">☀️</span> <span data-i="socialTemaDia"></span></button>
+              <button type="button" role="radio" aria-checked="false" data-aj-tema="noche"><span aria-hidden="true">🌙</span> <span data-i="socialTemaNoche"></span></button>
+            </div>
+            <h4 class="social-ajustes-grupo" data-i="socialAjCuenta"></h4>
+            <div class="social-ajustes-caja">
+              <button type="button" id="social-aj-admin" class="social-ajuste"><span id="social-aj-admin-texto"></span><svg class="social-ajuste-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <a href="#privacidad-social" class="social-ajuste" data-abrir-privacidad><span data-i="piePrivacidadSocial"></span><svg class="social-ajuste-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+              <button type="button" id="social-aj-salir" class="social-ajuste"><span data-i="socialSalir"></span><svg class="social-ajuste-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button type="button" id="social-aj-borrar" class="social-ajuste peligro"><span data-i="socialBorrarCuenta"></span><svg class="social-ajuste-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+          </section>
+
+          <!-- Botón flotante: empezar un chat nuevo (abre Contactos) -->
+          <button type="button" id="social-nuevo-chat" class="social-flotante" data-i-label="socialNuevoChat" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 4.5h11a1.5 1.5 0 011.5 1.5v2M10 17.5l-4.5 3.5V17H4.5A1.5 1.5 0 013 15.5V6a1.5 1.5 0 011.5-1.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><path d="M17 11v8M13 15h8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+          </button>
+
           <!-- Contactos: todos los que crearon usuario -->
-          <section id="social-panel-contactos" class="social-panel" aria-labelledby="social-panel-contactos-titulo" hidden>
-            <h3 id="social-panel-contactos-titulo" class="social-panel-titulo" data-i="socialContactos"></h3>
-            <ul id="social-lista-contactos" class="social-lista"></ul>
+          <section id="social-panel-contactos" class="social-panel social-panel-menu" role="tabpanel" aria-labelledby="social-boton-contactos" hidden>
+            <div class="social-panel-cabeza"><h3 id="social-panel-contactos-titulo" class="social-panel-titulo" data-i="socialContactos"></h3></div>
+            <ul id="social-lista-contactos" class="social-lista social-lista-tarjetas"></ul>
           </section>
 
           <!-- Panel de administrador (solo con la clave de administrador) -->
@@ -563,16 +739,17 @@
         <li data-i="priv9"></li>
         <li data-i="priv10"></li>
         <li data-i="priv11"></li>
+        <li data-i="priv12"></li>
         <li data-i="priv5"></li>
       </ul>
       <button type="button" class="btn-madera btn-chico" id="priv-cerrar"><span data-i="privCerrar"></span></button>
     </div>
   </div>
 
-  <script src="textos.js?v=8"></script>
+  <script src="textos.js?v=9"></script>
   <script src="script.js"></script>
   <script src="social-avatares.js?v=2"></script>
   <script src="social-medios.js?v=4"></script>
-  <script src="social.js?v=11"></script>
+  <script src="social.js?v=12"></script>
 </body>
 </html>

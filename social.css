@@ -984,3 +984,336 @@ html[data-tema="dia"] .social-fila.con-sticker .social-pie .social-marca.leido {
 .social-fila.con-sticker.resaltada .social-burbuja { animation: none; }
 .social-fila.con-sticker.resaltada .social-medio.sticker { animation: social-resalte-sticker 1.8s ease-out; }
 @keyframes social-resalte-sticker { 0%, 35% { filter: drop-shadow(0 0 10px rgba(90, 180, 255, 1)); } 100% { filter: none; } }
+
+/* =====================================================================
+   Menú principal (lista): barra Social, mi perfil, pestañas, Chats con tarjetas,
+   botón flotante y Ajustes. Todo con cristal (Vista), en día y noche.
+   ===================================================================== */
+.social-sala-caja { display: none; }
+.social-ir-chat { display: none; }
+.social.en-lista .social-ir-chat { display: grid; }
+.social.en-lista .social-chat { background: var(--ae-fondo); background-color: var(--so-chat); }
+/* Un destello azul abajo, como en el fondo de Vista */
+.social.en-lista .social-vista::before {
+  content: ""; position: absolute; left: -10%; right: -10%; bottom: -40px; height: 220px; z-index: 0; pointer-events: none;
+  background: radial-gradient(60% 50% at 20% 100%, rgba(40, 140, 255, .28), transparent 70%),
+              radial-gradient(50% 40% at 95% 70%, rgba(60, 160, 255, .18), transparent 70%);
+}
+html[data-tema="dia"] .social.en-lista .social-vista::before { opacity: .6; }
+.social.en-lista .social-panel { background: transparent; z-index: 3; }
+.social.en-lista .social-vista { overflow: hidden; }
+
+/* Barra Social: tarjeta de cristal con el mono en un círculo */
+.social.en-lista .social-cabecera {
+  margin: 8px 8px 0; padding: 8px 6px 8px 10px; border-radius: 18px;
+  border: 1px solid var(--ae-cristal-borde); background: var(--ae-cristal), var(--so-barra);
+  box-shadow: 0 4px 14px rgba(0, 20, 50, .3), inset 0 1px 0 var(--ae-brillo);
+}
+.social.en-lista .social-logo {
+  width: 50px; height: 50px; padding: 4px; border-radius: 50%; object-fit: contain;
+  background: radial-gradient(circle at 50% 35%, #2a3550, #0d1424);
+  box-shadow: 0 0 0 2px rgba(160, 205, 255, .45), 0 2px 6px rgba(0, 0, 0, .4);
+}
+html[data-tema="dia"] .social.en-lista .social-logo { background: radial-gradient(circle at 50% 35%, #ffffff, #dbe8f6); }
+.social.en-lista .social-cabecera h2 { font-size: 22px; color: var(--so-texto); text-shadow: none; }
+.social.en-lista .social-estado { font-size: 14px; color: var(--so-texto); }
+.social-estado.con-punto::before {
+  content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 50%; vertical-align: 1px;
+  background: var(--ae-verde); box-shadow: 0 0 6px var(--ae-verde);
+}
+
+/* Mi perfil: foto redonda con borde verde si estoy conectado */
+.social.en-lista .social-perfil {
+  margin: 8px 8px 0; padding: 10px 4px 10px 12px; border-radius: 18px;
+  border: 1px solid var(--ae-cristal-borde); background: var(--ae-cristal), var(--so-barra);
+  box-shadow: 0 4px 14px rgba(0, 20, 50, .25), inset 0 1px 0 var(--ae-brillo);
+}
+.social.en-lista .social-avatar-boton { border-radius: 50%; padding: 3px; background: rgba(140, 150, 165, .5); }
+.social.en-lista .social-avatar-boton.en-linea {
+  background: linear-gradient(180deg, #7dff9f, #22c55e); box-shadow: 0 0 10px rgba(61, 220, 107, .55);
+}
+.social.en-lista .social-avatar.grande { width: 62px; height: 62px; border-radius: 50%; box-shadow: 0 0 0 2px var(--so-chat); font-size: 36px; }
+.social.en-lista .social-mi-nombre { font-size: 21px; }
+.social.en-lista .social-mi-estado { font-size: 16px; }
+
+/* Pestañas */
+.social-pestanas-menu {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; align-items: stretch;
+  padding: 8px 8px 6px; border-bottom: 1px solid var(--ae-cristal-borde);
+}
+.social.en-lista .social-pestanas-menu { background: transparent; }
+.social-pestana {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  min-height: 62px; padding: 6px 2px; border: 1px solid transparent; border-radius: 14px; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--so-texto); background: none; min-width: 0;
+}
+.social-pestana span[data-i] { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.social-pestana svg { width: 26px; height: 26px; }
+.social-pestana:hover { background: rgba(120, 180, 255, .12); }
+.social-pestana.activo {
+  color: #fff; font-weight: bold; border-color: rgba(120, 190, 255, .7);
+  background: linear-gradient(180deg, #4aa3f5 0%, #1f74d4 48%, #1560bd 52%, #2a82e0 100%);
+  box-shadow: 0 2px 10px rgba(30, 120, 230, .45), inset 0 1px 0 rgba(255, 255, 255, .55);
+  text-shadow: 0 1px 1px rgba(0, 30, 80, .5);
+}
+.social-pestana.activo::after {
+  content: ""; position: absolute; left: 14%; right: 14%; bottom: -8px; height: 3px; border-radius: 3px;
+  background: #3fa6ff; box-shadow: 0 0 8px #3fa6ff;
+}
+.social-pestana-n {
+  position: absolute; top: 3px; right: calc(50% - 26px); min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
+  display: grid; place-items: center; font-size: 12px; font-weight: bold; color: #fff; line-height: 1;
+  background: linear-gradient(180deg, #ff7a6b, #e0352a); box-shadow: 0 1px 3px rgba(0, 0, 0, .4); text-shadow: none;
+}
+.social-pestana-n[hidden] { display: none; }
+@media (max-width: 380px) { .social-pestana { font-size: 11.5px; } .social-pestana svg { width: 23px; height: 23px; } }
+
+/* Cabeza de cada panel: título y botones redondos */
+.social-panel-cabeza { position: relative; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px 14px; }
+.social-panel-menu .social-panel-titulo { flex: 1; padding: 0; font-size: 17px; letter-spacing: 1px; color: #7fbaff; }
+html[data-tema="dia"] .social-panel-menu .social-panel-titulo { color: #1d64b8; }
+.social-boton-circulo {
+  flex: none; width: 46px; height: 46px; display: grid; place-items: center; padding: 0; cursor: pointer; border-radius: 50%;
+  color: var(--so-texto); border: 1px solid var(--ae-cristal-borde); background: var(--ae-cristal), var(--so-barra);
+  box-shadow: inset 0 1px 0 var(--ae-brillo);
+}
+.social-boton-circulo svg { width: 22px; height: 22px; }
+.social-boton-circulo:hover, .social-boton-circulo[aria-expanded="true"] { border-color: #3a9bf0; color: #3a9bf0; }
+.social-menu-orden { right: 0; min-width: 230px; }
+.social-busqueda { position: relative; z-index: 1; padding: 0 12px 8px; }
+.social-busqueda[hidden] { display: none; }
+.social .social-busqueda input {
+  width: 100%; padding: 9px 14px; font-size: 16px; border-radius: 99px;
+  background: var(--ae-campo, var(--so-campo)); color: var(--so-campo-texto); border: 1px solid var(--ae-campo-borde, var(--so-borde));
+}
+
+/* Tarjetas de la lista */
+.social-lista-tarjetas { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 8px; padding: 2px 10px 96px; }
+.social-lista.social-lista-tarjetas li + li .social-item { border-top: 1px solid var(--ae-cristal-borde); }
+.social-lista-tarjetas .social-item {
+  min-height: 76px; padding: 10px 12px; border-radius: 18px;
+  border: 1px solid var(--ae-cristal-borde); background: var(--ae-cristal), var(--so-barra);
+  box-shadow: 0 2px 8px rgba(0, 20, 50, .22), inset 0 1px 0 var(--ae-brillo);
+}
+.social-lista-tarjetas .social-item:hover { border-color: rgba(120, 190, 255, .7); }
+.social-lista-tarjetas .social-item[aria-current="true"] { background: var(--ae-cristal), var(--so-barra); }
+.social-lista-tarjetas .social-item.con-no-leidos {
+  border-color: rgba(70, 160, 255, .85);
+  background: linear-gradient(180deg, rgba(40, 120, 230, .35), rgba(20, 70, 160, .25)), var(--so-barra);
+  box-shadow: 0 0 12px rgba(40, 140, 255, .35), inset 0 1px 0 var(--ae-brillo);
+}
+html[data-tema="dia"] .social-lista-tarjetas .social-item.con-no-leidos {
+  background: linear-gradient(180deg, rgba(222, 238, 255, .98), rgba(195, 224, 252, .95)), #fff;
+}
+.social-lista-tarjetas .social-item-avatar { border-radius: 50%; padding: 3px; }
+.social-lista-tarjetas .social-item-avatar.con-anillo { background: rgba(140, 150, 165, .45); }
+.social-lista-tarjetas .social-item-avatar.en-linea { background: linear-gradient(180deg, #7dff9f, #22c55e); box-shadow: 0 0 8px rgba(61, 220, 107, .5); }
+.social-lista-tarjetas .social-item-avatar .social-avatar {
+  width: 54px; height: 54px; border-radius: 50%; font-size: 30px; box-shadow: 0 0 0 2px var(--so-chat);
+}
+.social-lista-tarjetas .social-item-avatar .social-avatar.es-grupo {
+  background: radial-gradient(circle at 50% 35%, #2a3550, #0d1424); padding: 4px; box-shadow: 0 0 0 2px rgba(160, 205, 255, .45);
+}
+html[data-tema="dia"] .social-lista-tarjetas .social-item-avatar .social-avatar.es-grupo { background: radial-gradient(circle at 50% 35%, #fff, #dbe8f6); }
+.social-lista-tarjetas .social-item-avatar .social-avatar.es-grupo img { object-fit: contain; }
+.social-lista-tarjetas .social-item-arriba strong { font-size: 18px; }
+.social-lista-tarjetas .social-item-arriba time { font-size: 14px; color: var(--so-texto); opacity: .8; }
+.social-lista-tarjetas .social-item-abajo { display: flex; align-items: center; gap: 6px; font-size: 15px; color: var(--so-tenue); margin-top: 3px; }
+.social-item-texto { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.social-item-marca { flex: none; font-weight: bold; letter-spacing: -3px; padding-right: 3px; color: var(--so-tenue); }
+.social-item-marca.leido { color: #3fa6ff; }
+.social-item-n {
+  flex: none; min-width: 26px; height: 26px; padding: 0 7px; border-radius: 13px; display: grid; place-items: center;
+  font-size: 14px; font-weight: bold; color: #fff; background: linear-gradient(180deg, #5bb2ff, #1c6fd6);
+  box-shadow: 0 0 8px rgba(40, 140, 255, .55), inset 0 1px 0 rgba(255, 255, 255, .5);
+}
+.social-item-fijado { flex: none; color: #6fb2ff; }
+html[data-tema="dia"] .social-item-fijado { color: #1d6fd0; }
+.social-item-fijado svg { width: 22px; height: 22px; display: block; }
+.social-lista-tarjetas .social-lista-vacia {
+  border-radius: 18px; border: 1px solid var(--ae-cristal-borde); background: var(--ae-cristal), var(--so-barra);
+}
+
+/* Botón flotante: chat nuevo */
+.social-flotante {
+  position: absolute; right: 16px; bottom: 18px; z-index: 4; width: 64px; height: 64px; border-radius: 50%;
+  display: grid; place-items: center; padding: 0; cursor: pointer; color: #fff; overflow: hidden;
+  border: 1px solid rgba(10, 60, 130, .85); background: var(--ae-boton);
+  box-shadow: 0 0 16px rgba(40, 140, 255, .6), 0 4px 10px rgba(0, 30, 80, .5), inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+.social-flotante::before {
+  content: ""; position: absolute; left: 14%; right: 14%; top: 4%; height: 45%; border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .75), rgba(255, 255, 255, .05)); pointer-events: none;
+}
+.social-flotante svg { position: relative; width: 30px; height: 30px; filter: drop-shadow(0 1px 1px rgba(0, 30, 80, .6)); }
+.social-flotante[hidden] { display: none; }
+.social-flotante:hover { filter: brightness(1.08); }
+
+/* Estados y Grupos: pronto */
+.social-pronto {
+  position: relative; z-index: 1; margin: 10px 12px; padding: 26px 18px; text-align: center; border-radius: 18px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  border: 1px solid var(--ae-cristal-borde); background: var(--ae-cristal), var(--so-barra); box-shadow: inset 0 1px 0 var(--ae-brillo);
+}
+.social-pronto-icono { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--ae-boton); box-shadow: 0 0 12px rgba(40, 140, 255, .5); }
+.social-pronto-icono svg { width: 34px; height: 34px; }
+.social-pronto-etiqueta { padding: 3px 14px; border-radius: 99px; font-size: 14px; letter-spacing: .5px; text-transform: uppercase; color: #fff; background: linear-gradient(180deg, #ffb04a, #d9730f); }
+.social-pronto p { margin: 0; max-width: 340px; font-size: 16px; color: var(--so-texto); }
+
+/* Ajustes */
+.social-ajustes-grupo { position: relative; z-index: 1; margin: 14px 16px 6px; font-size: 13px; letter-spacing: .8px; text-transform: uppercase; color: var(--so-tenue); }
+.social-ajustes-caja {
+  position: relative; z-index: 1; margin: 0 12px; border-radius: 16px; overflow: hidden;
+  border: 1px solid var(--ae-cristal-borde); background: var(--ae-cristal), var(--so-barra); box-shadow: inset 0 1px 0 var(--ae-brillo);
+}
+.social-ajuste {
+  width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px;
+  border: 0; background: none; cursor: pointer; text-align: left; font: inherit; font-size: 16px; color: var(--so-texto); text-decoration: none;
+}
+.social-ajuste[hidden] { display: none; }
+.social-ajuste + .social-ajuste { border-top: 1px solid var(--ae-cristal-borde); }
+.social-ajuste:hover, .social-ajuste:focus-visible { background: rgba(120, 180, 255, .14); outline-offset: -3px; }
+.social-ajuste.peligro { color: var(--so-error); }
+html[data-tema="dia"] .social-ajuste.peligro { color: #c0281b; }
+.social-ajuste.con-nota > span { display: flex; flex-direction: column; gap: 2px; }
+.social-ajuste-nota { font-size: 13px; color: var(--so-tenue); }
+.social-ajuste-flecha { width: 18px; height: 18px; flex: none; color: var(--so-tenue); }
+/* Interruptor de cristal */
+.social-interruptor {
+  flex: none; position: relative; width: 50px; height: 28px; border-radius: 14px;
+  background: linear-gradient(180deg, #8b95a5, #5f6878); box-shadow: inset 0 2px 4px rgba(0, 0, 0, .35);
+  transition: background .15s;
+}
+.social-interruptor::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff, #d8dee8); box-shadow: 0 1px 3px rgba(0, 0, 0, .45); transition: transform .15s;
+}
+.social-ajuste[aria-checked="true"] .social-interruptor { background: linear-gradient(180deg, #6fd0ff, #1f7bd8); }
+.social-ajuste[aria-checked="true"] .social-interruptor::after { transform: translateX(22px); }
+@media (prefers-reduced-motion: reduce) { .social-interruptor, .social-interruptor::after { transition: none; } }
+/* Dos opciones lado a lado (idioma, tema) */
+.social-segmento { position: relative; z-index: 1; margin: 0 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.social-segmento button {
+  min-height: 48px; padding: 8px; border-radius: 14px; cursor: pointer; font: inherit; font-size: 16px; color: var(--so-texto);
+  border: 1px solid var(--ae-cristal-borde); background: var(--ae-cristal), var(--so-barra); box-shadow: inset 0 1px 0 var(--ae-brillo);
+}
+.social-segmento button[aria-checked="true"] {
+  color: #fff; font-weight: bold; border-color: rgba(120, 190, 255, .8);
+  background: linear-gradient(180deg, #4aa3f5 0%, #1f74d4 48%, #1560bd 52%, #2a82e0 100%);
+  box-shadow: 0 2px 8px rgba(30, 120, 230, .4), inset 0 1px 0 rgba(255, 255, 255, .55); text-shadow: 0 1px 1px rgba(0, 30, 80, .5);
+}
+#social-panel-ajustes { padding-bottom: 24px; }
+#social-panel-ajustes .social-admin-aviso { position: relative; z-index: 1; }
+#social-panel-ajustes .social-admin-aviso:empty { display: none; }
+/* En el menú no se ve la conversación de atrás (visibility: así no pierde por dónde iba) */
+.social.en-lista .social-mensajes, .social.en-lista .social-escribiendo, .social.en-lista .social-form,
+.social.en-lista .social-grabando, .social.en-lista .social-respuesta, .social.en-lista .social-gifs,
+.social.en-lista .social-contador, .social.en-lista .social-reaccionar { visibility: hidden; }
+
+/* =====================================================================
+   Estados (24 horas): círculos de fotos, novedades, visor y música
+   ===================================================================== */
+.social-pestanas-menu { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.social-pestana-punto {
+  position: absolute; top: 6px; right: calc(50% - 20px); width: 12px; height: 12px; border-radius: 50%;
+  background: #3fa6ff; border: 2px solid #fff; box-shadow: 0 0 6px #3fa6ff;
+}
+.social-pestana-punto[hidden] { display: none; }
+
+/* "Lo que estoy escuchando" */
+.social-musica {
+  display: block; max-width: 100%; padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
+  font: inherit; font-size: 14px; font-weight: bold; color: #5fb4ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+html[data-tema="dia"] .social-musica { color: #1665c0; }
+.social-musica[hidden] { display: none; }
+.social-muro-musica { cursor: default; color: #bfe0ff; }
+html[data-tema="dia"] .social-muro-musica { color: #1665c0; }
+
+/* Fila de círculos con las fotos de estado */
+.social-estados-fotos {
+  position: relative; z-index: 1; list-style: none; margin: 0; padding: 4px 12px 6px;
+  display: flex; gap: 12px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+}
+.social-estados-fotos::-webkit-scrollbar { display: none; }
+.social-estado-persona {
+  width: 76px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 2px 0; cursor: pointer;
+  border: 0; background: none; font: inherit; color: var(--so-texto);
+}
+.social-estado-anillo { position: relative; display: block; padding: 4px; border-radius: 50%; background: rgba(140, 150, 165, .5); }
+.social-estado-anillo.sin-ver { background: conic-gradient(#36e07a, #3fa6ff, #36e07a); box-shadow: 0 0 10px rgba(63, 166, 255, .55); }
+.social-estado-anillo.mio { background: conic-gradient(#3fa6ff, #a9dcff, #3fa6ff); }
+.social-estado-anillo.vacio { background: rgba(140, 150, 165, .35); }
+.social-estado-anillo .social-avatar { width: 62px; height: 62px; border-radius: 50%; font-size: 34px; box-shadow: 0 0 0 2px var(--so-chat); }
+.social-estado-mas {
+  position: absolute; right: -2px; bottom: -2px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 18px; font-weight: bold; line-height: 1; color: #fff; background: var(--ae-boton); box-shadow: 0 0 0 2px var(--so-chat);
+}
+.social-estado-nombre { max-width: 100%; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.social-estado-persona:focus-visible { outline-offset: 0; border-radius: 12px; }
+
+/* Novedades: miniatura a la derecha */
+.social-nov-mini { flex: none; width: 46px; height: 46px; border-radius: 10px; overflow: hidden; }
+.social-nov-mini.social-avatar { border-radius: 50%; font-size: 26px; }
+.social-nov-foto { background: rgba(127, 140, 160, .25); }
+.social-nov-foto img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.social-item.sin-accion { cursor: default; }
+.social-item.sin-accion:hover { border-color: var(--ae-cristal-borde); }
+.social-lista-tarjetas .social-item-abajo .social-item-texto { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* Visor de fotos de estado (pantalla completa) */
+.social-visor-estado {
+  position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; background: #000; color: #fff;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.social-visor-estado[hidden] { display: none; }
+.social-ve-barras { flex: none; display: flex; gap: 4px; padding: 8px 10px 4px; }
+.social-ve-barra { flex: 1; height: 3px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, .35); }
+.social-ve-barra span { display: block; height: 100%; width: 0; background: #fff; }
+.social-ve-cabeza { flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 12px; }
+.social-ve-cabeza .social-avatar { width: 42px; height: 42px; border-radius: 50%; font-size: 24px; }
+.social-ve-textos { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.social-ve-textos strong { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.social-ve-textos span { font-size: 13px; opacity: .8; }
+.social-visor-estado .social-icono { color: #fff; }
+.social-visor-estado .social-icono:hover { background: rgba(255, 255, 255, .15); }
+.social-ve-centro { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; }
+.social-ve-centro img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.social-ve-zona { position: absolute; top: 0; bottom: 0; width: 35%; border: 0; padding: 0; background: none; cursor: pointer; }
+.social-ve-zona.antes { left: 0; }
+.social-ve-zona.despues { right: 0; width: 65%; }
+.social-ve-zona:focus-visible { outline: 3px solid #3fa6ff; outline-offset: -6px; }
+.social-ve-texto {
+  flex: none; margin: 0; padding: 10px 16px; text-align: center; font-size: 17px; line-height: 1.35; overflow-wrap: anywhere;
+  background: linear-gradient(0deg, rgba(0, 0, 0, .65), rgba(0, 0, 0, .35));
+}
+.social-ve-texto[hidden] { display: none; }
+.social-ve-vistos {
+  flex: none; align-self: center; margin: 8px 0 10px; padding: 8px 18px; border-radius: 99px; cursor: pointer;
+  font: inherit; font-size: 15px; font-weight: bold; color: #fff;
+  border: 1px solid rgba(160, 205, 255, .5); background: rgba(40, 90, 160, .55);
+}
+.social-ve-vistos[hidden] { display: none; }
+.social-ve-lista {
+  flex: none; list-style: none; margin: 0 10px 10px; padding: 6px 0; max-height: 40%; overflow-y: auto; border-radius: 14px;
+  background: rgba(20, 30, 45, .92); border: 1px solid rgba(160, 205, 255, .3);
+}
+.social-ve-lista[hidden] { display: none; }
+.social-ve-lista li { display: flex; align-items: center; gap: 10px; padding: 6px 14px; }
+.social-ve-lista strong { flex: 1; min-width: 0; }
+.social-ve-lista time { font-size: 13px; opacity: .8; }
+.social-ve-lista .social-avatar.mini { width: 32px; height: 32px; border-radius: 50%; font-size: 18px; }
+#social-estados-aviso:empty { display: none; }
+#social-estados-aviso { position: relative; z-index: 1; }
+
+/* Descargar fotos y videos */
+.social-descargar {
+  position: absolute; top: 6px; right: 6px; z-index: 2; width: 36px; height: 36px; display: grid; place-items: center; padding: 0;
+  border-radius: 50%; cursor: pointer; color: #fff; border: 1px solid rgba(255, 255, 255, .55);
+  background: rgba(10, 25, 45, .55); box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.social-descargar::before { content: ""; position: absolute; inset: -6px; }
+.social-descargar svg { width: 20px; height: 20px; }
+.social-descargar:hover, .social-descargar:focus-visible { background: rgba(31, 116, 212, .85); }
+.social-visor .social-visor-descargar { right: 64px; }

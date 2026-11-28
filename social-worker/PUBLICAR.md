@@ -61,6 +61,9 @@ En un iPhone (Safari) y en un Android (Chrome):
 - [ ] **Responder** (carita → Responder) a un texto, una foto y un GIF, en el general y en un privado. Tocar la cita lleva al mensaje original.
 - [ ] **GIF**: abrir, ver los populares, buscar (por ejemplo "gato"), enviar. Se ve en el otro teléfono.
 - [ ] **Stickers**: añadir uno (PNG con fondo transparente y un GIF animado), enviarlo, responder con uno, borrarlo con Editar. Al día siguiente sigue en la colección.
+- [ ] **Menú principal**: pestañas Chats, Estados, Contactos y Ajustes; buscar y ordenar chats; botón flotante; cambiar mi PIN en Ajustes.
+- [ ] **Estados**: subir una foto de estado, verla en el otro teléfono, "Visto por", borrarla; poner "Lo que estoy escuchando"; cambiar foto o estado y verlo en Novedades.
+- [ ] **Descargar** una foto y un video del chat (y una foto de estado).
 - [ ] **Traducir** un mensaje en español y uno en inglés.
 - [ ] Sonido de mensaje con el chat cerrado. En computadora, también la notificación con la pestaña en segundo plano.
 - [ ] Silenciar a una persona: no suena, pero sale el asterisco.
